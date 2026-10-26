@@ -4,9 +4,9 @@ Checked against Railway documentation on 26 October 2026.
 
 ## Plan and cost
 
-The owner chose **Pro with SMTP**. Pro is a $20/month minimum commitment including
-$20 of usage; $25 of usage means a $25 Railway bill, not $45. The lower paid plan,
-Hobby, starts at $5 including $5 usage. Free offers $1/month of resources and is
+The deployment now targets **Hobby with Brevo HTTPS email**. Hobby starts at
+$5/month including $5 usage; $8 of usage means an $8 Railway bill. Pro starts
+at $20 including $20 usage. Free offers $1/month of resources and is
 better suited to evaluation than scheduled certification exams.
 
 RAM costs $10/GB-month, CPU $20/vCPU-month, outbound traffic $0.05/GB, and volume
@@ -20,7 +20,7 @@ Sources: [Pricing](https://docs.railway.com/pricing),
 [plans](https://docs.railway.com/pricing/plans).
 
 SMTP is blocked on Free, Trial and Hobby. Pro supports SMTP after redeploying.
-The app retains its existing SMTP integration; no new email provider is added.
+Use Brevo's HTTPS API on Hobby. SMTP remains available for other deployments.
 Source: [Outbound networking](https://docs.railway.com/networking/outbound-networking).
 
 ## Deploy this repository
@@ -50,18 +50,44 @@ Source: [Outbound networking](https://docs.railway.com/networking/outbound-netwo
    | `RECAPTCHA_SITE_KEY` | Real Google reCAPTCHA v2 site key |
    | `RECAPTCHA_SECRET_KEY` | Matching private secret key |
    | `RECAPTCHA_ALLOWED_HOSTNAMES` | `YOUR-DOMAIN` without scheme |
-   | `SMTP_HOST` | Your SMTP provider hostname |
-   | `SMTP_PORT` | `587` for STARTTLS, or your provider's SSL port |
-   | `SMTP_USE_TLS` | `true` for STARTTLS; `false` for implicit SSL |
-   | `SMTP_USER`, `SMTP_PASSWORD` | Your private provider credentials/app password |
-   | `SMTP_FROM` | Authorized sender address |
-   | `SMTP_FROM_NAME` | `NIRPR RSO Examination Platform` |
+   | `BREVO_API_KEY` | Your private Brevo API key |
+   | `EMAIL_FROM` | Sender address verified in Brevo |
+   | `EMAIL_FROM_NAME` | `NIRPR RSO Examination Platform` |
 
    Leave `REDIS_URL`, `CELERY_BROKER_URL` and `CELERY_RESULT_BACKEND` unset.
+   Leave `SMTP_HOST`, `SMTP_USER` and `SMTP_PASSWORD` unset on Hobby.
    Production startup requires real signing/reCAPTCHA settings. Add the domain
    to the reCAPTCHA console. Do not copy development credentials from `.env`.
 5. Deploy and verify `/api/health`, registration, actual email delivery, login,
    receipt upload and download, and an exam/approval/certificate flow.
+
+## Set up Brevo email
+
+1. Create your account at [Brevo](https://www.brevo.com/). Enable transactional
+   email if approval is required for your account.
+2. Add and verify your sender address. Authenticate the sending domain using the
+   DNS records Brevo provides; you need permission to change that domain's DNS.
+3. Generate an API key in Brevo's SMTP & API settings, under API keys (not an
+   SMTP credential). Add it directly to Railway Variables as `BREVO_API_KEY`.
+   Set `EMAIL_FROM` to the verified sender and redeploy. Do not put keys in Git,
+   frontend code or chat.
+4. Register an address you control, confirm the verification message arrives,
+   and test password reset. Check Brevo transactional logs for delivery problems.
+
+When configured, Brevo receives recipient addresses and email contents, including
+verification/reset links and any generated temporary credentials. API credentials
+stay on the backend. Brevo takes priority over SMTP when its API key is set. Failed
+API calls return a failure result without saving email contents to the local
+outbox or falling back to SMTP. Existing registration screens do not prove delivery;
+check the provider logs. No real email is sent by the automated tests.
+
+Brevo's Free plan allows 300 emails/day shared across message types. Plan capacity
+for registration, password resets, schedules and results together. Transactional
+messages above the daily allowance can be queued, so a reset link may expire before
+delivery. Check your allowance before exam-day messages and upgrade the email plan
+if necessary; this does not require upgrading Railway.
+See [Brevo limits](https://help.brevo.com/hc/en-us/articles/208580669-FAQs-What-are-the-limits-of-the-Free-plan)
+and [transactional API](https://developers.brevo.com/reference/send-transac-email).
 
 ## Existing content and first administrator
 

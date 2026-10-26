@@ -2,9 +2,9 @@
 NIRPR RSO Examination Platform - Email Utility
 
 Sends transactional email (registration verification links, password reset
-links, and generated credentials for CSV-imported users) over SMTP.
+links, and generated credentials for CSV-imported users) over Brevo HTTPS or SMTP.
 
-DEV MODE: if SMTP_HOST is not configured, emails are not sent over the wire.
+DEV MODE: if neither BREVO_API_KEY nor SMTP_HOST is configured, emails are not sent over the wire.
 Instead they are written to the `outbox/` folder as .html files and logged
 to stdout, so the whole registration / verification / reset flow can be
 exercised end-to-end on a laptop with no mail server configured. Set the
@@ -15,11 +15,15 @@ import os
 import smtplib
 import ssl
 import logging
+import httpx
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from datetime import datetime
 
 logger = logging.getLogger("nirpr.email")
+BREVO_API_KEY = os.getenv("BREVO_API_KEY", "").strip()
+EMAIL_FROM = os.getenv("EMAIL_FROM", "").strip()
+EMAIL_FROM_NAME = os.getenv("EMAIL_FROM_NAME", "NIRPR RSO Examination Platform")
 
 SMTP_HOST = os.getenv("SMTP_HOST", "")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
@@ -54,10 +58,29 @@ def _dev_dump(to_email: str, subject: str, html_body: str):
 
 
 def send_email(to_email: str, subject: str, html_body: str, text_body: str = None) -> bool:
-    """Send an email. Returns True if actually dispatched over SMTP,
+    """Send an email. Returns True if accepted by Brevo or dispatched over SMTP,
     False if it fell back to dev-mode file output (still 'succeeds' from
     the caller's point of view — registration/reset flows should not fail
     just because SMTP isn't configured on a dev machine)."""
+    if BREVO_API_KEY:
+        if not EMAIL_FROM:
+            logger.error("Brevo requires EMAIL_FROM to match a verified sender.")
+            return False
+        payload = {"sender": {"email": EMAIL_FROM, "name": EMAIL_FROM_NAME},
+                   "to": [{"email": to_email}], "subject": subject, "htmlContent": html_body}
+        if text_body:
+            payload["textContent"] = text_body
+        try:
+            with httpx.Client(timeout=15.0) as client:
+                response = client.post("https://api.brevo.com/v3/smtp/email",
+                    headers={"api-key": BREVO_API_KEY, "accept": "application/json"}, json=payload)
+            response.raise_for_status()
+            return True
+        except httpx.HTTPError:
+            # Do not log provider bodies or dump private links on delivery errors.
+            # Avoid automatic retries: a timed-out request may already be accepted.
+            logger.error("Brevo email delivery failed; check provider logs, quota and sender verification.")
+            return False
     if not SMTP_HOST:
         _dev_dump(to_email, subject, html_body)
         return False
