@@ -5,17 +5,27 @@ NIRPR RSO Examination Platform - Database Configuration
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import declarative_base
+from sqlalchemy.pool import NullPool
 from contextlib import asynccontextmanager
 from name_utils import split_full_name
 import os
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./nirpr_exam.db")
+if DATABASE_URL.startswith(("postgres://", "postgresql://")):
+    DATABASE_URL = "postgresql+asyncpg://" + DATABASE_URL.split("://", 1)[1]
+
+# Release idle connections so Railway Serverless can sleep between visits.
+# Use the normal pool during busy examination windows if measurements warrant it.
+engine_options = {}
+if DATABASE_URL.startswith("postgresql+asyncpg://") and os.getenv("DB_POOL_MODE", "").lower() == "null":
+    engine_options["poolclass"] = NullPool
 
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,
     future=True,
     pool_pre_ping=True,
+    **engine_options,
 )
 
 AsyncSessionLocal = async_sessionmaker(

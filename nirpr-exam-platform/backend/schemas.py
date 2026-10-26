@@ -2,9 +2,9 @@
 NIRPR RSO Examination Platform - Pydantic Schemas
 """
 
-from pydantic import BaseModel, Field, EmailStr, validator
+from pydantic import BaseModel, Field, EmailStr, validator, field_validator
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 
@@ -174,6 +174,7 @@ class CandidateProfileResponse(BaseModel):
 class UserDetailResponse(UserResponse):
     candidate_profile: Optional[CandidateProfileResponse] = None
     candidate_number: Optional[str] = None
+    dashboard_candidate_number: Optional[str] = None
     is_impersonated: bool = False
 
 
@@ -296,7 +297,19 @@ class QuestionForExam(BaseModel):
     order_index: int
 
 
-class ExamBase(BaseModel):
+class ExamScheduleTimes(BaseModel):
+    @field_validator("start_time", "end_time", mode="after", check_fields=False)
+    @classmethod
+    def normalize_schedule_time(cls, value):
+        # Database timestamps and server-side exam clocks use naive UTC.
+        # Convert the instant before dropping tzinfo; simply removing the
+        # offset would shift schedules submitted from Nigeria or other zones.
+        if value is not None and value.tzinfo is not None:
+            return value.astimezone(timezone.utc).replace(tzinfo=None)
+        return value
+
+
+class ExamBase(ExamScheduleTimes):
     training_program_id: int
     title: str = Field(..., min_length=5, max_length=200)
     description: Optional[str] = None
@@ -314,10 +327,12 @@ class ExamBase(BaseModel):
 
 
 class ExamCreate(ExamBase):
+    batch_id: int = Field(..., gt=0)
     question_bank_ids: List[int]
 
 
-class ExamUpdate(BaseModel):
+class ExamUpdate(ExamScheduleTimes):
+    batch_id: Optional[int] = Field(default=None, gt=0)
     title: Optional[str] = None
     description: Optional[str] = None
     duration_minutes: Optional[int] = None
@@ -373,9 +388,11 @@ class NotificationCreate(BaseModel):
     user_ids: List[int] = []
     title: str = Field(..., min_length=3, max_length=200)
     message: str = Field(..., min_length=3, max_length=5000)
-    notification_type: str = "exam_reminder"
+    notification_type: str = "announcement"
     scheduled_for: Optional[datetime] = None
-    send_email: bool = True
+    send_email: bool = False
+    training_program_id: Optional[int] = None
+    batch_id: Optional[int] = None
 
 
 class StaffLoginDecision(BaseModel):
@@ -400,7 +417,7 @@ class RetakeGrantRequest(BaseModel):
     reason: Optional[str] = None
 
 
-class RescheduleRequest(BaseModel):
+class RescheduleRequest(ExamScheduleTimes):
     user_ids: List[int]
     start_time: datetime
     end_time: datetime
@@ -421,6 +438,9 @@ class ExamCandidateRow(BaseModel):
 
 
 class ExamListResponse(BaseModel):
+    assigned_candidates: int = 0
+    batch_id: Optional[int] = None
+    batch_name: Optional[str] = None
     id: int
     training_program_id: int
     title: str
@@ -439,11 +459,16 @@ class ExamListResponse(BaseModel):
     questions_per_exam: int
     registered_candidates: int
     can_start: bool = True
+    payment_required: bool = False
     access_status: Optional[str] = None
     access_message: Optional[str] = None
 
     class Config:
         from_attributes = True
+
+
+class ExamPaymentRequirement(BaseModel):
+    payment_required: bool
 
 
 class ExamAccessUpdate(BaseModel):
@@ -652,3 +677,23 @@ class AuditLogResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ExamRenewalApprovalUpdate(BaseModel):
+    approved: bool
+    reason: str = Field(..., min_length=5, max_length=2000)
+
+
+class TrainingBatchCreate(BaseModel):
+    training_program_id: int
+    name: str = Field(..., min_length=2, max_length=150)
+
+
+class CandidateBatchUpdate(BaseModel):
+    batch_id: int
+    user_ids: List[int] = Field(..., min_length=1, max_length=500)
+
+
+class ExamRosterApply(BaseModel):
+    batch_id: int
+    user_ids: List[int] = Field(..., min_length=1, max_length=500)

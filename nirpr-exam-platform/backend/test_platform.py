@@ -16,15 +16,15 @@ def test_public_health_captcha_and_verification_page():
 
 
 def test_certificate_number_is_stable():
-    assert certificate_number("RSO-DR", datetime(2026, 8, 23), 12, 3) == "NIRPR/NTC/RSO/DR/2026/0003/0012"
-    assert certificate_number("RSO-DIAG-RAD", datetime(2026, 8, 23), 12, 3) == "NIRPR/NTC/RSO/DIAG/2026/0003/0012"
+    assert certificate_number("RSO-DR", datetime(2026, 8, 23), 12, 3) == "NIRPR/NTC/RSO/DR/2026/0003"
+    assert certificate_number("RSO-DIAG-RAD", datetime(2026, 8, 23), 12, 3) == "NIRPR/NTC/RSO/DIAG/2026/0003"
 
 
 def test_certificate_qr_pdf_generation():
     pdf = build_certificate_pdf(candidate_name="Test Candidate", programme_name="RSO",
         practice_area="Diagnostic Radiology", exam_title="Final Examination", score=82.5,
         issued_on=datetime.utcnow(), certificate_no=certificate_number("RSO-DR", datetime(2026, 8, 23), 12, 3),
-        verification_url="https://example.test/verify-certificate?number=NIRPR%2FNTC%2FRSO%2FDR%2F2026%2F0003%2F0012")
+        verification_url="https://example.test/verify-certificate?number=NIRPR%2FNTC%2FRSO%2FDR%2F2026%2F0003")
     assert pdf.startswith(b"%PDF") and len(pdf) > 5_000
 
 

@@ -205,6 +205,7 @@ def send_exam_schedule_email(to_email: str, full_name: str, exam_title: str,
                              start_time: datetime, end_time: datetime, duration_minutes: int,
                              is_update: bool = False):
     action = "has been updated" if is_update else "has been scheduled"
+    login_url = f"{APP_BASE_URL.rstrip('/')}/"
     html = _wrapper(f"""
       <h2 style="margin-top:0;">Examination schedule notification</h2>
       <p>Hello {full_name},</p><p>Your examination <strong>{exam_title}</strong> {action}.</p>
@@ -213,9 +214,18 @@ def send_exam_schedule_email(to_email: str, full_name: str, exam_title: str,
         <tr><td style="padding:7px;color:#5c6b78;">Closes</td><td><strong>{end_time.strftime('%A, %d %B %Y at %I:%M %p')}</strong></td></tr>
         <tr><td style="padding:7px;color:#5c6b78;">Duration</td><td><strong>{duration_minutes} minutes</strong></td></tr>
       </table><p>Please sign in before the scheduled start time and confirm that your payment approval and device are ready.</p>
-      <p style="text-align:center;margin:26px 0;"><a href="{APP_BASE_URL}/" style="background:#046a38;color:#fff;padding:12px 22px;border-radius:7px;text-decoration:none;font-weight:700;">Open candidate portal</a></p>
+      <p style="text-align:center;margin:26px 0;"><a href="{login_url}" style="background:#046a38;color:#fff;padding:12px 22px;border-radius:7px;text-decoration:none;font-weight:700;">Log in to your examination portal</a></p>
+      <p>If the button does not open, click or copy this login link into your browser:<br>
+        <a href="{login_url}">{login_url}</a></p>
+      <p>Sign in with your registered email address and password.</p>
     """)
-    send_email(to_email, f"Exam schedule: {exam_title} — {APP_NAME}", html)
+    text = (f"Hello {full_name},\n\nYour examination {exam_title} {action}.\n"
+            f"Starts: {start_time.strftime('%A, %d %B %Y at %I:%M %p')}\n"
+            f"Closes: {end_time.strftime('%A, %d %B %Y at %I:%M %p')}\n"
+            f"Duration: {duration_minutes} minutes\n\n"
+            f"Log in to your examination portal: {login_url}\n"
+            "Sign in with your registered email address and password.")
+    send_email(to_email, f"Exam schedule: {exam_title} — {APP_NAME}", html, text_body=text)
 
 
 def send_general_notification_email(to_email: str, full_name: str, title: str, message: str):

@@ -541,3 +541,40 @@ class StaffLoginApproval(Base):
     decision_notes = Column(Text)
     decided_at = Column(DateTime)
     consumed_at = Column(DateTime)
+
+
+class ExamRenewalApproval(Base):
+    """Explicit admission of a returning candidate to a different examination."""
+    # Retain the original storage name so approvals already saved locally survive.
+    __tablename__ = "exam_resit_invitations"
+    id = Column(Integer, primary_key=True)
+    exam_id = Column(Integer, ForeignKey("exams.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    invited_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    reason = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    __table_args__ = (UniqueConstraint("exam_id", "user_id", name="uq_exam_resit_invitation"),)
+
+
+class TrainingBatch(Base):
+    __tablename__ = "training_batches"
+    id = Column(Integer, primary_key=True)
+    training_program_id = Column(Integer, ForeignKey("training_programs.id"), nullable=False, index=True)
+    name = Column(String(150), nullable=False)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    __table_args__ = (UniqueConstraint("training_program_id", "name", name="uq_training_batch_name"),)
+
+
+class CandidateBatchAssignment(Base):
+    __tablename__ = "candidate_batch_assignments"
+    user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    batch_id = Column(Integer, ForeignKey("training_batches.id"), nullable=False, index=True)
+    assigned_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    assigned_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class ExamBatchAssignment(Base):
+    __tablename__ = "exam_batch_assignments"
+    exam_id = Column(Integer, ForeignKey("exams.id"), primary_key=True)
+    batch_id = Column(Integer, ForeignKey("training_batches.id"), nullable=False, index=True)

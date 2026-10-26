@@ -7,6 +7,7 @@ from sqlalchemy import select, func
 load_dotenv()
 from database import AsyncSessionLocal  # noqa: E402
 from models import TrainingProgram, QuestionBank, Question, QuestionType  # noqa: E402
+from question_options import balanced_correct_labels, redistribute_options
 BANK_NAME = "NWLST Comprehensive Question Bank (100 Questions)"
 
 BASES = [
@@ -47,18 +48,21 @@ async def main():
                                 is_active=True, created_at=datetime.utcnow())
             db.add(bank)
             await db.flush()
-        existing = (await db.execute(select(func.count(Question.id)).where(Question.question_bank_id == bank.id))).scalar_one()
+        existing = (await db.execute(select(func.count(Question.id)).where(Question.question_bank_id == bank.id, Question.is_active == True))).scalar_one()
+        targets = balanced_correct_labels(max(0, 100-existing))
         for index in range(existing, 100):
             topic, stem, choices, correct, explanation = BASES[index % len(BASES)]
             scenario = index // len(BASES) + 1
+            options, answer = redistribute_options({chr(65+i):value for i,value in enumerate(choices)},
+                                                    [chr(65+correct)], targets[index-existing])
             db.add(Question(question_bank_id=bank.id, question_text=f"NWLST scenario {scenario}: {stem}",
                             question_type=QuestionType.MULTIPLE_CHOICE,
-                            options={chr(65 + i): value for i, value in enumerate(choices)},
-                            correct_answer=[chr(65 + correct)], explanation=explanation,
+                            options=options,
+                            correct_answer=answer, explanation=explanation,
                             marks=1.0, difficulty="easy" if index % 4 == 0 else "medium",
                             topic=topic, is_active=True, created_at=datetime.utcnow()))
         await db.commit()
-        final_count = (await db.execute(select(func.count(Question.id)).where(Question.question_bank_id == bank.id))).scalar_one()
+        final_count = (await db.execute(select(func.count(Question.id)).where(Question.question_bank_id == bank.id, Question.is_active == True))).scalar_one()
         print(f"NWLST bank {bank.id}: {final_count} questions")
 
 

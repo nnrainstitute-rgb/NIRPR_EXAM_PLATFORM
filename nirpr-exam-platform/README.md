@@ -1,5 +1,8 @@
 # NIRPR RSO Examination Platform
 
+For Railway deployment, SMTP requirements and operating-cost settings, see
+[RAILWAY-DEPLOYMENT.md](RAILWAY-DEPLOYMENT.md).
+
 A professional certification examination platform for Radiation Safety
 Officers (RSO) in Nigeria, built for the National Institute of Radiation
 Protection and Research (NIRPR) — the technical arm of the Nigerian Nuclear
@@ -377,3 +380,129 @@ a photograph from a second device. For high-stakes remote delivery, pair these
 controls with a managed kiosk/lockdown browser and a documented human review
 process. Configure PostgreSQL, Redis, Celery workers, TLS, production SMTP,
 strong secrets, backups and centralized logs before deployment.
+
+## Per-exam payment receipt requirement
+
+Under Administration → Payment receipts, use **Receipt requirement by exam** to
+turn the requirement on or off for each examination. The programme filter also
+filters these switches. Administrators and super administrators can change them;
+changes are recorded in the audit log.
+
+When on, candidates need an approved receipt or an administrator access grant
+before starting. When off, no payment approval is needed. Exam schedules,
+programme eligibility and attempt limits still apply. Existing attempts remain
+accessible. Exams without a saved payment policy use the existing default, off.
+Receipt history remains available when the requirement is disabled. Saving other
+exam delivery rules preserves this setting.
+
+## Training batches, new candidates and renewal approval
+
+A **new candidate** has never attempted any examination. A **returning candidate**
+has a previous attempt, including a passed examination. Returning candidates need
+explicit **renewal approval** for a different exam. A retake remains a separate
+permission for another attempt on the same exam.
+
+1. Open **Exam setup → Training batches**, select a programme, and create a named
+   batch (for example, October 2026 cohort).
+2. Select candidates and use **Assign / reassign selected** to place them into
+   that batch. Candidates can have one current batch and must belong to its
+   programme. Assignments and changes are audit logged.
+3. When scheduling an examination, select its programme and training batch. Only
+   eligible members of that batch receive schedule emails and notifications.
+4. Open the exam's **Candidates** panel and choose **Approve renewal** for a
+   returning candidate. Enter a reason. The candidate must be in the exam's batch.
+   Approval sends that candidate the schedule and is audit logged. Repeating it
+   does not send duplicate emails. Payment requirements still apply.
+
+Candidate dashboards, receipt uploads and server-side exam admission enforce the
+same batch and renewal rules. Payment approval alone does not bypass them.
+Candidates assigned after scheduling receive only their new batch's applicable
+upcoming schedules; repeating an unchanged assignment does not resend emails.
+
+Existing exams are not automatically assigned to a batch. Use **Edit exam** to
+select a batch before admitting new candidates. An exam's batch is locked after
+an attempt exists. Reassignment does not erase existing attempts, results or
+receipts, and a candidate can continue an existing attempt after reassignment.
+Schedule emails still go only to the exam's current batch.
+
+Restart the application to create the batch and assignment tables through
+`init_db()`. Existing renewal records retain their original storage table for
+compatibility. No existing candidates are automatically assigned to batches.
+
+## Candidate announcements
+
+The candidate **Announcements** tab and unread count show only notices published
+by administrators. Security events, login activity, receipts, renewal decisions
+and automated exam reminders remain stored separately and are not marked read
+when a candidate opens Announcements.
+
+Under **Administration → Announcements**, admins and super admins can publish a
+title and message to all active candidates, a selected training programme, or a
+batch. Email delivery is optional and off by default. The panel shows publication
+history, recipient counts, and read counts. Posting is immediate and audit logged.
+Previously stored system notifications are preserved but excluded from this feed.
+
+## Import candidates for an examination
+
+Open **Exam setup → Manage candidates & schedules → Import candidates (CSV / Excel)**.
+Download the CSV template or use a `.csv`, `.tsv`, `.txt`, `.xls`, `.xlsx` or `.xlsm` file with an **email** column in
+its first row (Excel uses the first worksheet). Up to 500 candidates and 5 MB are
+accepted. Existing candidate accounts are matched by email, ignoring case.
+
+Choose **Preview file**, review every row, then use **Select all matched candidates**
+or individual checkboxes and **Import selected candidates**. Unknown addresses,
+duplicates, staff accounts, inactive candidates and candidates from another
+programme cannot be selected. Correct those rows and preview the file again.
+No accounts or assignments are changed during preview.
+
+Importing assigns or reassigns the selected accounts to the examination's batch,
+which also affects other exams assigned to that batch. Returning candidates still
+need renewal approval, and receipt requirements remain in force. The candidate
+panel and assigned count refresh after import or after editing an exam's batch.
+Existing attempts remain visible even when a candidate moves to another batch.
+
+### Import a training batch directly
+
+Open **Exam setup → Training batches**, choose the programme and target batch,
+then **Import candidate file (CSV / Excel)**. Preview the file, select individual
+matches or **Select all matched candidates**, then **Import selected candidates**.
+This also works before scheduling an exam. The existing exam importer supports
+the same extensions: `.csv`, `.tsv`, `.txt`, `.xls`, `.xlsx`, `.xlsm`.
+Text files must be UTF-8 or BOM-marked UTF-16; `.txt` accepts comma, semicolon or
+tab separators. Excel uses its first worksheet. Macros are not executed.
+
+## Certificate branding, numbers and signatures
+
+Downloaded certificates retain the original layout and full organisation-name
+headings, with the NNRA logo and cleaned signatures. Numbers now end with one candidate identifier,
+for example `NIRPR/NTC/RSO/NWLST/2026/0006`. The QR link includes the exact attempt
+reference separately. Previously issued longer numbers remain verifiable.
+Manual verification of a short number returns the most recent matching released,
+approved passing certificate; its QR code identifies the exact attempt.
+
+Certificate signatures use Pillow to isolate ink, remove light/gray paper
+backgrounds and crop blank margins. New certificate signature uploads are saved
+as transparent PNGs; existing images are cleaned when the certificate is drawn.
+Upload actual handwriting on plain paper. For documents containing other text,
+use **Certificate signatures → View → Extract signature** to select handwriting
+before saving. A receipt or unrelated document is not a usable signature.
+
+## Generated question option balance
+
+Generated starter and NWLST questions assign correct answers across A, B, C and D,
+while storing and displaying option labels alphabetically. Correct answer text
+is remapped with its label. The local maintenance tool
+`backend/rebalance_generated_questions.py` previews imbalanced generated banks;
+`--apply` writes a JSON backup and revisions before updating them. Questions used
+by previous attempts are retained as inactive historical versions and replaced
+with revised active questions. Candidate attempts, answers and results are not
+rewritten. The admin question list defaults to active questions; select
+**Show inactive / historical questions** to inspect preserved versions.
+
+### Dashboard candidate number
+
+The candidate dashboard displays the certificate-style number, for example
+`NIRPR/NTC/RSO/NWLST/2026/0006`. When an approved passing certificate has been
+released for the current programme, it uses the latest certificate's exact
+course/year/number. Before a certificate is issued it uses the current year and
+the same formatter. Existing registry identities and candidate tags are retained.

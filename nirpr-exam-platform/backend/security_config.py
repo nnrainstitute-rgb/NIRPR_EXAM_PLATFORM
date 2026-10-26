@@ -15,7 +15,10 @@ def is_production():
 
 def signing_key():
     value = os.getenv("SECRET_KEY", "").strip()
-    if len(value) < 32 or value == "nirpr-rso-platform-secret-key-change-in-production":
+    if len(value) < 32 or value in {
+        "nirpr-rso-platform-secret-key-change-in-production",
+        "change-this-to-a-long-random-string-in-production",
+    }:
         if is_production():
             raise RuntimeError("Set SECRET_KEY to a private random value of at least 32 characters before starting production.")
         # An ephemeral local key is safer than a publicly known signing key.

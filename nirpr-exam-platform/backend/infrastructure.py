@@ -1,7 +1,7 @@
 """Optional Redis/Celery infrastructure with safe local fallbacks.
 
-The web process remains usable without Redis during development. Production
-deployments should set REDIS_URL and run `celery -A infrastructure.celery_app worker`.
+Single-worker deployments can use the bounded in-memory rate limiter without
+Redis. Multiple web workers/replicas require REDIS_URL for shared rate limits.
 """
 import json
 import os
@@ -9,16 +9,16 @@ import time
 from collections import OrderedDict, deque
 from celery import Celery
 
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", REDIS_URL)
-CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", REDIS_URL)
+REDIS_URL = os.getenv("REDIS_URL", "").strip()
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", REDIS_URL or "memory://")
+CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", REDIS_URL or "cache+memory://")
 celery_app = Celery("nirpr", broker=CELERY_BROKER_URL, backend=CELERY_RESULT_BACKEND)
 celery_app.conf.update(task_serializer="json", accept_content=["json"], result_serializer="json",
                        timezone=os.getenv("TZ", "Africa/Lagos"), enable_utc=True)
 
 try:
     import redis.asyncio as redis
-    redis_client = redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=0.25, socket_timeout=0.25)
+    redis_client = redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=0.25, socket_timeout=0.25) if REDIS_URL else None
 except Exception:
     redis_client = None
 

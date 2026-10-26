@@ -15,6 +15,7 @@ from reportlab.pdfgen import canvas
 from reportlab.platypus import Paragraph
 from reportlab.lib.utils import ImageReader
 import qrcode
+from signature_utils import clean_signature_image
 
 
 NAVY = colors.HexColor("#102A43")
@@ -33,12 +34,15 @@ def certificate_number(course_code: str, issued_on: datetime,
         raise ValueError("Course code must contain a value other than RSO")
     if examination_number < 0 or examination_number > 9999:
         raise ValueError("Examination number must contain no more than four digits")
-    if certification_id < 0 or certification_id > 9999:
-        raise ValueError("Certification number must contain no more than four digits")
     return (
         f"NIRPR/NTC/RSO/{normalized_code}/{issued_on.year}/"
-        f"{examination_number:04d}/{certification_id:04d}"
+        f"{examination_number:04d}"
     )
+
+
+
+def legacy_certificate_number(course_code, issued_on, certification_id, examination_number):
+    return f"{certificate_number(course_code,issued_on,certification_id,examination_number)}/{certification_id:04d}"
 
 
 def _centered_paragraph(pdf, text, style, y, width, height=30 * mm):
@@ -64,7 +68,7 @@ def _draw_signature(pdf, signature: dict | None, center_x: float, line_y: float,
     if signature and signature.get("image_path"):
         try:
             pdf.drawImage(
-                signature["image_path"], center_x - 28 * mm, line_y + 3 * mm,
+                ImageReader(clean_signature_image(signature["image_path"])), center_x - 28 * mm, line_y + 3 * mm,
                 56 * mm, 15 * mm, preserveAspectRatio=True, anchor="c", mask="auto",
             )
         except Exception:
@@ -120,7 +124,7 @@ def build_certificate_pdf(*, candidate_name: str, programme_name: str,
                       page_height / 2 - 58 * mm, 104 * mm, 104 * mm,
                       preserveAspectRatio=True, anchor="c", mask="auto")
 
-    logo_path = Path(__file__).resolve().parent.parent / "frontend" / "images" / "nirpr_logo.jpg"
+    logo_path = Path(__file__).resolve().parent.parent / "frontend" / "images" / "nnra-logo.jpg"
     if logo_path.is_file():
         pdf.drawImage(str(logo_path), page_width / 2 - 42 * mm, page_height - 34 * mm,
                       84 * mm, 25 * mm, preserveAspectRatio=True, anchor="c", mask="auto")
@@ -184,7 +188,7 @@ def build_certificate_pdf(*, candidate_name: str, programme_name: str,
     pdf.setFillColor(MUTED); pdf.setFont("Helvetica", 7.3)
     pdf.drawString(22 * mm, 22 * mm, f"Valid till {valid_until.strftime('%B %Y')}")
     pdf.drawRightString(page_width - 22 * mm, 22 * mm,
-                        f"Issued {issued_on.strftime('%d %B %Y')} | Score {score:.1f}%")
+                        f"Issued {issued_on.strftime('%d %B %Y')}")
 
     by_role = {s.get("role_key"): s for s in (signatures or [])}
     manager = by_role.get("general_manager")

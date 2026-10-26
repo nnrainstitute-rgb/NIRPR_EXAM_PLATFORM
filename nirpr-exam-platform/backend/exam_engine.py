@@ -15,6 +15,7 @@ from models import (
     RetakeAuthorization, ExamScheduleOverride,
 )
 from schemas import AnswerSubmit
+from exam_eligibility import require_exam_eligibility
 
 
 class ExamEngine:
@@ -96,6 +97,7 @@ class ExamEngine:
         if not exam:
             raise HTTPException(status_code=404, detail="Exam not found")
 
+        await require_exam_eligibility(db, exam, candidate)
         now = datetime.utcnow()
 
         # A per-candidate schedule override (set by an admin) replaces the

@@ -19,7 +19,7 @@
     </div>
   </div>
   <nav id="tabs" class="candidate-nav" aria-label="Candidate dashboard sections">
-    <button class="active" data-tab="exams">Exams</button><button data-tab="results">Results</button><button data-tab="certificates">Certificates</button><button data-tab="payments">Payments</button><button data-tab="notifications">Notifications <span id="notificationBadge" class="notification-count hidden">0</span></button><button data-tab="settings">Settings</button>
+    <button class="active" data-tab="exams">Exams</button><button data-tab="results">Results</button><button data-tab="certificates">Certificates</button><button data-tab="payments">Payments</button><button data-tab="notifications">Announcements <span id="notificationBadge" class="notification-count hidden">0</span></button><button data-tab="settings">Settings</button>
   </nav>
   <div class="user-chip">
     <span id="userName"></span>
@@ -40,7 +40,7 @@
     <p>Manage your examination schedule, active assessments, and results in one place.</p>
   </header>
   <div class="candidate-identity hidden" id="candidateIdentity" aria-label="Your candidate identification">
-    <span class="candidate-identity-label">Candidate ID</span>
+    <span class="candidate-identity-label">Candidate number</span>
     <strong id="candidateNumber"></strong>
   </div>
 
@@ -91,7 +91,7 @@
     </div>
   </div>
   <div id="paymentsPane" class="hidden"><div class="card"><h2 class="mt-0">Payment receipts</h2><p class="subtitle">Upload a PDF, PNG or JPEG receipt for approval before a payment-gated exam.</p><div id="paymentsList"></div></div></div>
-  <div id="notificationsPane" class="hidden"><div class="card"><div class="row between"><h2 class="mt-0">Notifications &amp; reminders</h2><button class="btn small secondary" id="markNotificationsRead" type="button">Mark all as read</button></div><div id="notificationsList"></div></div></div>
+  <div id="notificationsPane" class="hidden"><div class="card"><div class="row between"><h2 class="mt-0">Announcements from administration</h2><button class="btn small secondary" id="markNotificationsRead" type="button">Mark all as read</button></div><div id="notificationsList"></div></div></div>
   <div id="settingsPane" class="hidden">
     <div class="card">
       <h2 class="mt-0">Display settings</h2><p class="subtitle">Customize how your candidate portal appears on this device.</p>
@@ -282,27 +282,30 @@ document.querySelectorAll("#tabs button").forEach(btn => {
 async function loadPayments() {
   const [paymentsRes, examsRes] = await Promise.all([fetch(`${API}/candidate/payments`, {headers:authHeaders()}), fetch(`${API}/exams`, {headers:authHeaders()})]);
   const payments = await paymentsRes.json(), exams = await examsRes.json();
-  document.getElementById("paymentsList").innerHTML = `<form id="receiptForm" class="row" enctype="multipart/form-data">
-    <select id="receiptExam" required>${exams.map(e=>`<option value="${e.id}">${escapeHtml(e.title)}</option>`).join("")}</select>
+  const receiptExams = exams.filter(exam => exam.payment_required && ['scheduled','active'].includes(exam.status));
+  document.getElementById("paymentsList").innerHTML = (receiptExams.length ? `<form id="receiptForm" class="row" enctype="multipart/form-data">
+    <select id="receiptExam" required>${receiptExams.map(e=>`<option value="${e.id}">${escapeHtml(e.title)}</option>`).join("")}</select>
     <input id="receiptReference" placeholder="Payment reference" required><input id="receiptFile" type="file" accept=".pdf,.png,.jpg,.jpeg" required>
-    <button class="btn" type="submit">Upload receipt</button></form>` + (payments.length ? `<table><thead><tr><th>Exam</th><th>Reference</th><th>Status</th><th>Uploaded</th></tr></thead><tbody>${payments.map(p=>`<tr><td>${escapeHtml(p.exam)}</td><td>${escapeHtml(p.reference||'—')}</td><td><span class="badge ${p.status==='approved'?'green':p.status==='rejected'?'red':'gold'}">${p.status}</span></td><td>${new Date(p.uploaded_at).toLocaleString()}</td></tr>`).join('')}</tbody></table>` : '<p class="muted">No receipts uploaded.</p>');
-  document.getElementById("receiptForm").onsubmit = async e => { e.preventDefault(); const fd=new FormData(); fd.append('file',document.getElementById('receiptFile').files[0]); fd.append('reference',document.getElementById('receiptReference').value); const res=await fetch(`${API}/candidate/payments/${document.getElementById('receiptExam').value}`,{method:'POST',headers:{Authorization:`Bearer ${token}`},body:fd}); const data=await res.json(); showAlert(data.detail,res.ok?'success':'error'); if(res.ok)loadPayments(); };
+    <button class="btn" type="submit">Upload receipt</button></form>` : '<p class="muted">No upcoming exams currently require a payment receipt.</p>') + (payments.length ? `<table><thead><tr><th>Exam</th><th>Reference</th><th>Status</th><th>Uploaded</th></tr></thead><tbody>${payments.map(p=>`<tr><td>${escapeHtml(p.exam)}</td><td>${escapeHtml(p.reference||'—')}</td><td><span class="badge ${p.status==='approved'?'green':p.status==='rejected'?'red':'gold'}">${p.status}</span></td><td>${new Date(p.uploaded_at).toLocaleString()}</td></tr>`).join('')}</tbody></table>` : '<p class="muted">No receipts uploaded.</p>');
+  const receiptForm = document.getElementById("receiptForm");
+  if (receiptForm) receiptForm.onsubmit = async e => { e.preventDefault(); const fd=new FormData(); fd.append('file',document.getElementById('receiptFile').files[0]); fd.append('reference',document.getElementById('receiptReference').value); const res=await fetch(`${API}/candidate/payments/${document.getElementById('receiptExam').value}`,{method:'POST',headers:{Authorization:`Bearer ${token}`},body:fd}); const data=await res.json(); showAlert(data.detail,res.ok?'success':'error'); if(res.ok)loadPayments(); };
 }
 
 async function loadNotifications() {
-  const res=await fetch(`${API}/notifications`,{headers:authHeaders()}), items=await res.json();
-  document.getElementById('notificationsList').innerHTML=items.length?items.map(n=>`<div class="notification-item ${n.read_at?'':'unread'}"><div class="row between"><strong>${escapeHtml(n.title)}</strong>${n.read_at?'':'<span class="badge blue">New</span>'}</div><p>${escapeHtml(n.message)}</p><span class="muted">${new Date(n.created_at).toLocaleString()}</span></div>`).join(''):'<p class="muted">No notifications.</p>';
+  const res=await fetch(`${API}/announcements`,{headers:authHeaders()}), items=await res.json();
+  if(!res.ok) { document.getElementById('notificationsList').textContent='Announcements could not be loaded. Please refresh.'; return; }
+  document.getElementById('notificationsList').innerHTML=items.length?items.map(n=>`<div class="notification-item ${n.read_at?'':'unread'}"><div class="row between"><strong>${escapeHtml(n.title)}</strong>${n.read_at?'':'<span class="badge blue">New</span>'}</div><p style="white-space:pre-wrap">${escapeHtml(n.message)}</p><span class="muted">${new Date(n.created_at).toLocaleString()}</span></div>`).join(''):'<p class="muted">No announcements yet.</p>';
 }
-async function loadUnreadCount(){const res=await fetch(`${API}/notifications/unread-count`,{headers:authHeaders()});if(!res.ok)return;const count=(await res.json()).unread_count||0,badge=document.getElementById('notificationBadge');badge.textContent=count>99?'99+':String(count);badge.classList.toggle('hidden',count===0);}
+async function loadUnreadCount(){const res=await fetch(`${API}/announcements/unread-count`,{headers:authHeaders()});if(!res.ok)return;const count=(await res.json()).unread_count||0,badge=document.getElementById('notificationBadge');badge.textContent=count>99?'99+':String(count);badge.classList.toggle('hidden',count===0);}
 async function openNotifications(){
   const badge=document.getElementById('notificationBadge');
   badge.textContent='0';
   badge.classList.add('hidden');
-  const res=await fetch(`${API}/notifications/mark-all-read`,{method:'POST',headers:authHeaders()});
+  const res=await fetch(`${API}/announcements/mark-all-read`,{method:'POST',headers:authHeaders()});
   await loadNotifications();
   if(!res.ok)loadUnreadCount();
 }
-document.getElementById('markNotificationsRead').onclick=async()=>{const res=await fetch(`${API}/notifications/mark-all-read`,{method:'POST',headers:authHeaders()});if(res.ok){loadNotifications();loadUnreadCount();}};
+document.getElementById('markNotificationsRead').onclick=async()=>{const res=await fetch(`${API}/announcements/mark-all-read`,{method:'POST',headers:authHeaders()});if(res.ok){loadNotifications();loadUnreadCount();}};
 
 async function loadSessions(){const res=await fetch(`${API}/auth/sessions`,{headers:authHeaders()}),items=await res.json(),list=document.getElementById('sessionsList');if(!res.ok){list.innerHTML='<div class="alert error">Could not load your sessions.</div>';return;}list.innerHTML=items.length?`<table><thead><tr><th>Device</th><th>Network address</th><th>Last active</th><th>Status</th><th></th></tr></thead><tbody>${items.map(s=>`<tr><td>${escapeHtml(s.device||'Unknown browser')}</td><td>${escapeHtml(s.ip_address==='127.0.0.1'?'This computer (127.0.0.1)':s.ip_address||'Unknown')}</td><td>${new Date(s.last_seen_at).toLocaleString()}</td><td>${s.revoked?'<span class="badge gray">Revoked</span>':'<span class="badge green">Active</span>'}</td><td>${s.revoked?'':`<button class="btn small danger" onclick="revokeSession('${s.id}')">Revoke</button>`}</td></tr>`).join('')}</tbody></table>`:'<p class="muted">No sessions found.</p>';}
 window.revokeSession=async id=>{if(!confirm('Revoke this login session? That device will need to sign in again.'))return;const res=await fetch(`${API}/auth/sessions/${id}`,{method:'DELETE',headers:authHeaders()});if(res.ok)loadSessions();else showAlert('Could not revoke the session.','error');};
@@ -352,8 +355,8 @@ async function init() {
     if (!res.ok) throw new Error();
     const me = await res.json();
     document.getElementById("userName").textContent = me.full_name;
-    if (me.candidate_number) {
-      document.getElementById("candidateNumber").textContent = me.candidate_number;
+    if (me.dashboard_candidate_number) {
+      document.getElementById("candidateNumber").textContent = me.dashboard_candidate_number;
       document.getElementById("candidateIdentity").classList.remove("hidden");
     }
     if (me.candidate_profile) {
@@ -478,7 +481,7 @@ async function loadExams() {
     list.innerHTML = exams.map(e => `
       <article class="exam-card">
         <div class="exam-copy">
-          <h3>${e.title}</h3>
+          <h3>${escapeHtml(e.title)}</h3><p class="muted">Training batch: ${escapeHtml(e.batch_name || 'Previous examination')}</p>
           <div class="exam-meta">
             <span>${escapeHtml(e.training_program_name)}</span>
             <span>Pass mark: ${Number(e.passing_score).toFixed(0)}%</span>

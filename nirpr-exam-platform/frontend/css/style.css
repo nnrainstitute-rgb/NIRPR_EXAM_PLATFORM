@@ -513,3 +513,11 @@ tr:hover td { background: #fafbfb; }
 .muted { color: var(--text-mute); }
 .mt-0 { margin-top: 0; }
 .mb-0 { margin-bottom: 0; }
+
+/* Per-exam receipt requirement switch. */
+#examPaymentRequirements input[role="switch"] { appearance:none; width:44px; min-width:44px; height:24px; padding:2px; margin:0; border:1px solid var(--border); border-radius:20px; background:#78818b; cursor:pointer; }
+#examPaymentRequirements input[role="switch"]::before { content:""; display:block; width:18px; height:18px; border-radius:50%; background:white; transition:transform .15s; }
+#examPaymentRequirements input[role="switch"]:checked { background:var(--primary, #046a38); }
+#examPaymentRequirements input[role="switch"]:checked::before { transform:translateX(18px); }
+#examPaymentRequirements input[role="switch"]:focus-visible { outline:3px solid #1769aa; outline-offset:3px; }
+#examPaymentRequirements input[role="switch"]:disabled { opacity:.55; cursor:wait; }
