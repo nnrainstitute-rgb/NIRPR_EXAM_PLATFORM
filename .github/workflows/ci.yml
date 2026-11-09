@@ -79,7 +79,7 @@ jobs:
             exit 0
           fi
 
-          response=$(curl --fail --silent --show-error --max-time 30 --proto '=https' \
+          response=$(curl --request POST --fail --silent --show-error --max-time 30 --proto '=https' \
             --header "Authorization: Bearer $COOLIFY_TOKEN" "$COOLIFY_DEPLOY_WEBHOOK")
           if ! jq -e '.deployments[] | .deployment_uuid | select(type == "string" and length > 0)' \
             >/dev/null <<< "$response"; then
