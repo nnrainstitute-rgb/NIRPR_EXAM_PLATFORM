@@ -52,3 +52,38 @@ jobs:
         run: |
           python -m pip install --upgrade "pip>=26.2.1" "pip-audit==2.10.1"
           python -m pip_audit --progress-spinner off
+
+  deploy:
+    name: Queue Coolify deployment
+    needs: tests
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.COOLIFY_CD_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      COOLIFY_DEPLOY_WEBHOOK: ${{ secrets.COOLIFY_DEPLOY_WEBHOOK }}
+      COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+    steps:
+      - name: Request deployment after CI
+        shell: bash
+        run: |
+          if [[ -z "$COOLIFY_DEPLOY_WEBHOOK" || -z "$COOLIFY_TOKEN" ]]; then
+            echo '::error::Configure COOLIFY_DEPLOY_WEBHOOK and COOLIFY_TOKEN in GitHub Actions secrets.'
+            exit 1
+          fi
+
+          # A Coolify deploy webhook deploys the configured branch. Skip stale CI runs.
+          current_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')
+          if [[ "$current_sha" != "$GITHUB_SHA" ]]; then
+            echo 'A newer commit is on main. Its own CI run will handle deployment.'
+            exit 0
+          fi
+
+          response=$(curl --fail --silent --show-error --max-time 30 --proto '=https' \
+            --header "Authorization: Bearer $COOLIFY_TOKEN" "$COOLIFY_DEPLOY_WEBHOOK")
+          if ! jq -e '.deployments[] | .deployment_uuid | select(type == "string" and length > 0)' \
+            >/dev/null <<< "$response"; then
+            echo '::error::Coolify did not report a queued deployment. Check the deploy webhook and token.'
+            exit 1
+          fi
+          echo "Coolify queued a deployment after checks passed for $GITHUB_SHA. Verify it in Deployment Logs."
