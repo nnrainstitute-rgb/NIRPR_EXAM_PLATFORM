@@ -1361,63 +1361,80 @@ document.getElementById("newExamBtn").addEventListener("click", async () => {
   const canCreateBatch = ["admin", "super_admin"].includes(role);
   let bankIds = [];
   let available = 0;
+  let questionCountEdited = false;
+  let busy = false;
   let loadVersion = 0;
+  const updateSchedule = () => {
+    schedule.disabled = busy || batch.disabled || !batch.value || !available;
+  };
   const showError = message => {
     formError.textContent = message;
     formError.classList.remove("hidden");
   };
   const loadOptions = async (path, label) => {
-    const response = await fetch(path, { headers: authHeaders() });
-    const options = await readExamResponse(response, `Could not load ${label}`);
-    if (!Array.isArray(options)) throw new Error(`Could not load ${label}. Please try again.`);
-    return options;
+    try {
+      const response = await fetch(path, { headers: authHeaders(), signal: AbortSignal.timeout(15000) });
+      const options = await readExamResponse(response, `Could not load ${label}`);
+      if (Array.isArray(options)) return options;
+    } catch (error) {
+      if (error.name !== "TimeoutError" && !(error instanceof TypeError)) throw error;
+    }
+    throw new Error(`Could not load ${label}. Use Retry loading to try again.`);
   };
-  const refreshProgramme = async (selectedBatch = "") => {
+  const refreshProgramme = (selectedBatch = "") => {
     const version = ++loadVersion;
+    const isCurrent = () => version === loadVersion && form.isConnected;
     const query = `?training_program_id=${encodeURIComponent(programme.value)}`;
     formError.classList.add("hidden");
     retry.classList.add("hidden");
     batchCreator.classList.add("hidden");
     batch.disabled = true;
-    schedule.disabled = true;
+    available = 0;
+    bankIds = [];
+    updateSchedule();
     batch.innerHTML = '<option value="">Loading training batches…</option>';
     batchStatus.textContent = "";
     questionStatus.textContent = "Checking active questions…";
-    const [batches, banks] = await Promise.allSettled([
-      loadOptions(`${API}/admin/training-batches${query}`, "training batches"),
-      loadOptions(`${API}/question-banks${query}`, "question banks"),
-    ]);
-    if (version !== loadVersion || !form.isConnected) return;
-
-    if (batches.status === "fulfilled") {
-      const options = batches.value;
+    loadOptions(`${API}/admin/training-batches${query}`, "training batches").then(options => {
+      if (!isCurrent()) return;
       batch.innerHTML = options.length
         ? '<option value="">Select a training batch</option>' +
           options.map(option => `<option value="${option.id}">${esc(option.name)}</option>`).join("")
         : '<option value="">No training batches yet</option>';
       batch.disabled = !options.length;
-      if (selectedBatch) batch.value = selectedBatch;
+      if (options.some(option => String(option.id) === selectedBatch)) batch.value = selectedBatch;
       batchCreator.classList.toggle("hidden", !canCreateBatch);
+      batchCreator.open = canCreateBatch && !options.length;
       batchStatus.textContent = options.length
-        ? "Only eligible members of the selected batch receive the exam. Assign candidates from Training batches."
-        : "Create a batch for this programme, then assign its candidates from Training batches.";
-    } else {
+        ? "Choose a batch. Only eligible members of that batch receive the exam."
+        : canCreateBatch
+          ? "Enter a batch name below to continue. Assign candidates from Training batches."
+          : "Ask an administrator to create a batch for this programme.";
+      updateSchedule();
+    }).catch(error => {
+      if (!isCurrent()) return;
       batch.innerHTML = '<option value="">Training batches unavailable</option>';
-      batchStatus.textContent = batches.reason.message;
-    }
-    if (banks.status === "fulfilled") {
-      bankIds = banks.value.map(bank => bank.id);
-      available = banks.value.reduce((total, bank) => total + bank.question_count, 0);
+      batchStatus.textContent = error.message;
+      retry.classList.remove("hidden");
+    });
+
+    loadOptions(`${API}/question-banks${query}`, "question banks").then(banks => {
+      if (!isCurrent()) return;
+      bankIds = banks.map(bank => bank.id);
+      available = banks.reduce((total, bank) => total + bank.question_count, 0);
       questions.max = Math.min(200, Math.max(1, available));
+      if (available && !questionCountEdited) {
+        questions.value = Math.min(Number(questions.defaultValue), Number(questions.max));
+      }
       questionStatus.textContent = available
         ? `${available} active questions available. Enter up to ${questions.max} per candidate.`
         : "Add active questions to this programme before scheduling.";
-    } else {
-      questionStatus.textContent = banks.reason.message;
-    }
-    const loaded = batches.status === "fulfilled" && banks.status === "fulfilled";
-    retry.classList.toggle("hidden", loaded);
-    schedule.disabled = !loaded || batch.disabled || !available;
+      updateSchedule();
+    }).catch(error => {
+      if (!isCurrent()) return;
+      questionStatus.textContent = error.message;
+      retry.classList.remove("hidden");
+    });
   };
 
   programme.addEventListener("change", () => {
@@ -1425,6 +1442,8 @@ document.getElementById("newExamBtn").addEventListener("click", async () => {
     batchCreator.open = false;
     refreshProgramme();
   });
+  batch.addEventListener("change", updateSchedule);
+  questions.addEventListener("input", () => { questionCountEdited = true; });
   retry.addEventListener("click", () => refreshProgramme(batch.value));
   addBatch.addEventListener("click", async () => {
     const name = batchName.value.trim();
@@ -1433,8 +1452,9 @@ document.getElementById("newExamBtn").addEventListener("click", async () => {
       batchName.focus();
       return;
     }
-    const wasScheduleDisabled = schedule.disabled;
-    programme.disabled = addBatch.disabled = schedule.disabled = retry.disabled = true;
+    busy = true;
+    programme.disabled = addBatch.disabled = retry.disabled = true;
+    updateSchedule();
     formError.classList.add("hidden");
     try {
       const response = await fetch(`${API}/admin/training-batches`, {
@@ -1445,12 +1465,19 @@ document.getElementById("newExamBtn").addEventListener("click", async () => {
       if (!form.isConnected) return;
       batchName.value = "";
       batchCreator.open = false;
-      await refreshProgramme(String(created.id));
+      if (batch.disabled) {
+        batch.options[0].textContent = "Select a training batch";
+        batch.disabled = false;
+      }
+      batch.add(new Option(created.name, created.id));
+      batch.value = String(created.id);
+      batchStatus.textContent = "Batch created and selected. Assign its candidates from Training batches.";
     } catch (error) {
-      schedule.disabled = wasScheduleDisabled;
       showError(error.message);
     } finally {
+      busy = false;
       programme.disabled = addBatch.disabled = retry.disabled = false;
+      updateSchedule();
     }
   });
   batchName.addEventListener("keydown", event => {
@@ -1462,7 +1489,9 @@ document.getElementById("newExamBtn").addEventListener("click", async () => {
     e.preventDefault();
     if (schedule.disabled || e.target !== form) return;
     formError.classList.add("hidden");
-    programme.disabled = batch.disabled = addBatch.disabled = schedule.disabled = true;
+    busy = true;
+    programme.disabled = batch.disabled = addBatch.disabled = retry.disabled = true;
+    updateSchedule();
     try {
       const title = field("eTitle").value.trim();
       if (title.length < 5) throw new Error("Exam title must contain at least 5 characters.");
@@ -1495,7 +1524,9 @@ document.getElementById("newExamBtn").addEventListener("click", async () => {
       showAlert("Exam scheduled.", "success");
       loadExams();
     } catch (err) {
-      programme.disabled = batch.disabled = addBatch.disabled = schedule.disabled = false;
+      busy = false;
+      programme.disabled = batch.disabled = addBatch.disabled = retry.disabled = false;
+      updateSchedule();
       showError(err.message);
     }
   });
