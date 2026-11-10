@@ -122,21 +122,40 @@ async def test_create_exam_sends_only_to_selected_batch(setup,monkeypatch):
     db,admin,candidate,exam,other=setup
     sender=Mock()
     monkeypatch.setattr(main.email_utils,"send_exam_schedule_email",sender)
-    batch=await make_batch(db,admin,exam)
+    batch = await main.create_training_batch(
+        schemas.TrainingBatchCreate(training_program_id=exam.training_program_id, name="Second batch"),
+        admin, db,
+    )
+    batches = await main.list_training_batches(exam.training_program_id, admin, db)
+    assert batch["id"] in {option["id"] for option in batches}
     second_user=User(email="second@example.test",first_name="Second",surname="Candidate",hashed_password="unused",role=UserRole.CANDIDATE)
     db.add(second_user)
     bank=QuestionBank(training_program_id=exam.training_program_id,name="Bank")
     db.add(bank)
     await db.flush()
     db.add(CandidateProfile(user_id=second_user.id,training_program_id=exam.training_program_id))
-    db.add(CandidateBatchAssignment(user_id=second_user.id,batch_id=batch.id,assigned_by=admin.id))
+    db.add(CandidateBatchAssignment(user_id=second_user.id,batch_id=batch["id"],assigned_by=admin.id))
     db.add(Question(question_bank_id=bank.id,question_text="Question",options={"A":"Answer"},correct_answer="A"))
     await db.commit()
-    result=await main.create_exam(schemas.ExamCreate(training_program_id=exam.training_program_id,batch_id=batch.id,
+    result=await main.create_exam(schemas.ExamCreate(training_program_id=exam.training_program_id,batch_id=batch["id"],
         title="Batch exam",questions_per_exam=1,question_bank_ids=[bank.id],start_time=exam.start_time,end_time=exam.end_time),admin,db)
     assert sender.call_count==1
     assert sender.call_args.args[0]==second_user.email
     assert candidate.id not in await eligible_candidate_ids(db,await db.get(Exam,result.id))
+
+
+@pytest.mark.asyncio
+async def test_create_exam_rejects_reversed_schedule(setup):
+    db, admin, _, exam, _ = setup
+    batches = await main.list_training_batches(exam.training_program_id, admin, db)
+    data = schemas.ExamCreate(
+        training_program_id=exam.training_program_id, batch_id=batches[0]["id"],
+        title="Reversed schedule", question_bank_ids=[],
+        start_time=exam.end_time, end_time=exam.start_time,
+    )
+    with pytest.raises(HTTPException, match="End time must be after start time"):
+        await main.create_exam(data, admin, db)
+    assert (await db.execute(select(Exam).where(Exam.title == data.title))).scalar_one_or_none() is None
 
 
 @pytest.mark.asyncio
