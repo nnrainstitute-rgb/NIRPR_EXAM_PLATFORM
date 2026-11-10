@@ -106,7 +106,7 @@ async def test_cross_programme_not_eligible_or_invitable(setup):
     db.add(programme)
     await db.flush()
     foreign_exam=Exam(training_program_id=programme.id,title="Foreign exam",start_time=datetime.utcnow(),
-                     end_time=datetime.utcnow()+timedelta(hours=3),status=exam.status)
+                     end_time=datetime.utcnow()+timedelta(hours=3),status=exam.status,programme_wide=True)
     db.add(foreign_exam)
     await db.commit()
     assert candidate.id not in await eligible_candidate_ids(db,foreign_exam)

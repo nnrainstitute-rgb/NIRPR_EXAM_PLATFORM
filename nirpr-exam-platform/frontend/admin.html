@@ -167,8 +167,8 @@
     <h1>Governance &amp; Candidate Services</h1><p class="subtitle">Payment verification, result appeals, reminders and staff two-factor authentication.</p>
     <div class="governance-nav" id="governanceTabs"><button class="active" data-pane="login">Staff access</button><button data-pane="payments">Payment receipts</button><button data-pane="exam-access">Candidate exam access</button><button data-pane="appeals">Appeals</button><button data-pane="notifications">Announcements</button><button data-pane="signatures">Certificate signatures</button><button data-pane="tag-signature">Candidate tag signature</button><button data-pane="security">Account security</button></div>
     <div class="card governance-pane" data-pane="login"><div class="row between"><div><h2>Staff login approval requests</h2><p class="subtitle">Only a super administrator acting as Head of ICT or General Manager can approve staff access.</p></div><button class="btn small secondary" onclick="loadLoginApprovals()">Refresh access requests</button></div><div id="loginApprovalList"></div></div>
-    <div class="card governance-pane hidden" data-pane="payments"><div class="governance-filter-header"><div><h2>Payment receipts</h2><p class="subtitle">Search and review uploaded receipts. Ten records are shown per page.</p></div><div class="governance-filter-controls"><select id="paymentProgramFilter"><option value="">All training programmes</option></select><button class="btn small secondary" onclick="loadGovernance()">Refresh</button></div></div><h3>Receipt requirement by exam</h3><p class="muted">On: candidates need an approved receipt or administrator access. Off: no receipt is needed. Existing attempts remain accessible.</p><div id="examPaymentRequirements"></div><hr><label for="paymentSearch">Search receipts</label><input id="paymentSearch" type="search" placeholder="Candidate, exam, reference, file name or status"><div id="paymentReviewList" class="governance-table-scroll"></div><div id="paymentPagination" class="governance-pagination"></div></div>
-    <div class="card governance-pane hidden" data-pane="exam-access"><div class="governance-filter-header"><div><h2>Candidate exam access</h2><p class="subtitle">Search candidate access records and grant or revoke administrative access. Ten records are shown per page.</p></div><div class="governance-filter-controls"><select id="accessProgramFilter"><option value="">All training programmes</option></select><button class="btn small secondary" onclick="loadGovernance()">Refresh</button></div></div><label for="accessSearch">Search access</label><input id="accessSearch" type="search" placeholder="Candidate, email, programme, exam or access status"><div id="examAccessList" class="governance-table-scroll"></div><div id="accessPagination" class="governance-pagination"></div></div>
+    <div class="card governance-pane hidden" data-pane="payments"><div class="governance-filter-header"><div><h2>Payment receipts</h2><p class="subtitle">Search and review uploaded receipts. Ten records are shown per page.</p></div><div class="governance-filter-controls"><select id="paymentProgramFilter"><option value="">All training programmes</option></select><button class="btn small secondary" onclick="loadGovernance()">Refresh</button></div></div><h3>Receipt requirement by exam</h3><p class="muted">When On, an approved receipt is required to start. When Off, eligible candidates can start without a receipt. Attempts already in progress can continue.</p><div id="examPaymentRequirements"></div><hr><label for="paymentSearch">Search receipts</label><input id="paymentSearch" type="search" placeholder="Candidate, exam, reference, file name or status"><div id="paymentReviewList" class="governance-table-scroll"></div><div id="paymentPagination" class="governance-pagination"></div></div>
+    <div class="card governance-pane hidden" data-pane="exam-access"><div class="governance-filter-header"><div><h2>Candidate exam access</h2><p class="subtitle">Review candidate eligibility and receipt approval. Ten records are shown per page.</p></div><div class="governance-filter-controls"><select id="accessProgramFilter"><option value="">All training programmes</option></select><button class="btn small secondary" onclick="loadGovernance()">Refresh</button></div></div><label for="accessSearch">Search access</label><input id="accessSearch" type="search" placeholder="Candidate, email, programme, exam or access status"><div id="examAccessList" class="governance-table-scroll"></div><div id="accessPagination" class="governance-pagination"></div></div>
     <div class="card governance-pane hidden" data-pane="appeals"><div class="row between"><div><h2>Exam rewrite appeals</h2><p class="subtitle">Approve an appeal to grant the candidate one additional attempt.</p></div><button class="btn small secondary" onclick="loadGovernance()">Refresh appeals</button></div><div id="appealReviewList"></div></div>
     <div class="card governance-pane hidden" data-pane="notifications"><h2>Candidate announcements</h2><p class="subtitle">Publish official notices to candidate dashboards. Login activity and other system alerts do not appear here.</p><div id="announcementStatus" role="status"></div><form id="notifyForm"><label>Audience: training programme</label><select id="announcementProgramme"><option value="">All active candidates</option></select><label>Training batch (optional)</label><select id="announcementBatch"><option value="">All batches in the selected audience</option></select><label>Announcement title</label><input id="notifyTitle" placeholder="Announcement title" minlength="3" maxlength="200" required><label>Message</label><textarea id="notifyMessage" placeholder="Write your announcement to candidates" minlength="3" maxlength="5000" required></textarea><label class="row"><input id="announcementEmail" type="checkbox" style="width:auto">Also send by email</label><button class="btn" id="publishAnnouncementBtn">Publish announcement</button></form><h3>Published announcements</h3><div id="announcementHistory"></div></div>
     <div class="card governance-pane hidden" data-pane="signatures"><h2>Certificate signatures by training programme</h2><p class="subtitle">Upload the General Manager and Course Coordinator signatures used on certificates for the selected programme. These images are separate from the candidate tag signature. The supplied certificate names Dr Samuel Oyeyemi as General Manager, NIRPR, Ibadan; confirm the current authorised signatory before uploading.</p><form id="signatureForm"><div class="grid cols-2"><select id="signatureProgram" required><option value="">Select training programme</option></select><select id="signatureRole"><option value="general_manager">General Manager signature</option><option value="course_coordinator">Course Coordinator signature</option></select><input id="signatoryName" placeholder="Signatory full name" required><input id="signatoryTitle" placeholder="Official title" required><input id="signatureFile" type="file" accept=".png,.jpg,.jpeg" required></div><button class="btn">Upload certificate signature</button></form><div id="signatureStatus" style="margin-top:16px"></div></div>
@@ -962,16 +962,16 @@ async function loadExams() {
   document.getElementById('examFilterSummary').textContent=pid?`${visibleExams.length} examination(s) found for ${selectedName}.`:`Showing all ${visibleExams.length} examination(s).`;
   if (!visibleExams.length) { list.innerHTML = `<div class="empty-state">No examinations or schedules are assigned to <strong>${esc(selectedName)}</strong>.</div>`; return; }
   const badge = { draft: 'gray', scheduled: 'blue', active: 'green', completed: 'gray', archived: 'gray' };
-  list.innerHTML = `<table><thead><tr><th>Examination title</th><th>Training programme</th><th>Candidate access window</th><th>Batch candidates / attempts</th><th>Delivery status</th><th>Exam management actions</th></tr></thead><tbody>
+  list.innerHTML = `<table><thead><tr><th>Examination title</th><th>Training programme</th><th>Candidate access window</th><th>Candidates / attempts</th><th>Delivery status</th><th>Exam management actions</th></tr></thead><tbody>
     ${visibleExams.map(e => `<tr>
-      <td>${esc(e.title)}<div class="muted">Batch: ${esc(e.batch_name || 'Unassigned — edit exam')}</div></td><td>${esc(e.training_program_name)}${e.training_program_code ? `<div class="muted">${esc(e.training_program_code)}</div>` : ""}</td>
+      <td>${esc(e.title)}<div class="muted">${e.programme_wide ? "Whole programme" : `Batch: ${esc(e.batch_name || "Unassigned — edit exam")}`}</div></td><td>${esc(e.training_program_name)}${e.training_program_code ? `<div class="muted">${esc(e.training_program_code)}</div>` : ""}</td>
       <td style="font-size:12px;">${new Date(e.start_time).toLocaleString()} &rarr; ${new Date(e.end_time).toLocaleString()}</td>
-      <td>${e.assigned_candidates ?? 0} assigned<div class="muted">${e.registered_candidates} attempt(s)</div>${e.batch_id && !e.assigned_candidates && ['admin','super_admin'].includes(role) ? `<button class="btn small secondary" onclick="openBatchManager(${e.training_program_id}, ${e.batch_id})">Assign batch candidates</button>` : ""}</td>
+      <td>${e.assigned_candidates ?? 0} ${e.programme_wide ? "registered" : "assigned"}<div class="muted">${e.registered_candidates} attempt(s)</div>${e.batch_id && !e.assigned_candidates && ['admin','super_admin'].includes(role) ? `<button class="btn small secondary" onclick="openBatchManager(${e.training_program_id}, ${e.batch_id})">Assign batch candidates</button>` : ""}</td>
       <td><span class="badge ${badge[e.status] || 'gray'}">${e.status}</span><div class="muted">${e.payment_required ? "Approved receipt required" : "Receipt optional"}</div></td>
       <td class="row" style="gap:6px;">
         ${e.status === 'scheduled' ? `<button class="btn small" onclick="setExamStatus(${e.id}, 'active')">Open exam to candidates</button>` : ''}
         ${e.status === 'active' ? `<button class="btn small secondary" onclick="setExamStatus(${e.id}, 'completed')">Close exam access</button>` : ''}
-        <button class="btn small ghost" onclick="openExamCandidates(${e.id}, '${esc(e.title)}')">Manage candidates & schedules</button>
+        <button class="btn small ghost" onclick="openExamCandidates(${e.id})">Manage candidates & schedules</button>
         <button class="btn small secondary" onclick="editExam(${e.id})">Edit exam details</button>
         <button class="btn small ghost" onclick="editExamPolicy(${e.id})">Configure delivery & security rules</button>
         <button class="btn small danger" onclick="deleteExam(${e.id})">Delete or archive exam</button>
@@ -1059,7 +1059,7 @@ window.editExam = async function (examId) {
     <p class="subtitle">Training programme: ${esc(e.training_program_name)}${e.training_program_code ? ` (${esc(e.training_program_code)})` : ""}</p>
     ${hasRegistrations ? `<div class="alert warn">This exam already has ${e.registered_candidates} candidate attempt(s). Question-selection settings (questions per candidate, randomization) are locked to keep existing attempts consistent — you can still edit timing, marks, and instructions.</div>` : ''}
     <form id="examEditForm">
-      <label>Training batch</label><select id="eeBatch" ${hasRegistrations?'disabled':'required'}><option value="">Select batch</option>${batches.map(b=>`<option value="${b.id}" ${b.id===e.batch_id?'selected':''}>${esc(b.name)}</option>`).join('')}</select>
+      <label for="eeBatch">Exam audience</label><select id="eeBatch" ${hasRegistrations?'disabled':'required'}><option value="">Choose audience</option><option value="programme" ${e.programme_wide ? "selected" : ""}>Whole registered programme</option>${batches.map(b=>`<option value="${b.id}" ${b.id===e.batch_id?'selected':''}>${esc(b.name)}</option>`).join('')}</select>
       <label>Exam title</label><input id="eeTitle" required value="${esc(e.title)}" />
       <div class="grid cols-3">
         <div><label>Duration (min)</label><input type="number" id="eeDuration" value="${e.duration_minutes}" min="15" /></div>
@@ -1088,11 +1088,14 @@ window.editExam = async function (examId) {
         start_time: new Date(document.getElementById("eeStart").value).toISOString(),
         end_time: new Date(document.getElementById("eeEnd").value).toISOString(),
       };
-      if (!hasRegistrations) payload.batch_id = Number(document.getElementById('eeBatch').value);
+      if (!hasRegistrations) {
+        const audience = document.getElementById("eeBatch").value;
+        payload.programme_wide = audience === "programme";
+        payload.batch_id = payload.programme_wide ? null : Number(audience);
+      }
       if (!hasRegistrations) payload.questions_per_exam = parseInt(document.getElementById("eeQCount").value);
       const res = await fetch(`${API}/exams/${examId}`, { method: "PATCH", headers: jsonHeaders(), body: JSON.stringify(payload) });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Failed to update exam");
+      await readExamResponse(res, "Failed to update exam");
       closeModal(); showAlert("Exam updated.", "success"); loadExams();
     } catch (err) { showAlert(err.message, "error"); }
   });
@@ -1110,6 +1113,8 @@ window.deleteExam = async function (examId) {
 };
 
 window.openExamCandidates = async function (examId, examTitle) {
+  const exam = examsCache.find(item => item.id === examId);
+  examTitle = examTitle || exam?.title || "Examination";
   openModal(`<h2 class="mt-0">Loading candidates...</h2>`);
   try {
     const res = await fetch(`${API}/admin/exams/${examId}/candidates`, { headers: authHeaders() });
@@ -1119,10 +1124,10 @@ window.openExamCandidates = async function (examId, examTitle) {
     const statusBadge = { not_started: 'gray', in_progress: 'blue', submitted: 'blue', auto_submitted: 'gold', approved: 'green', rejected: 'red' };
     openModal(`
       <h2 class="mt-0">${esc(examTitle)} &mdash; Candidates</h2>
-      <p class="muted">Showing this exam’s batch members and candidates with existing attempts. Importing assigns candidates to the exam’s batch; it also applies to other exams in that batch.</p>
-      <p class="subtitle">New candidates have never attempted an exam. Candidates must belong to this exam’s batch; returning candidates also need renewal approval. Payment rules still apply. Use Grant retake for another attempt on this same exam.</p>
+      <p class="muted">${exam?.programme_wide ? "Showing candidates registered in this exam’s programme." : "Showing batch members and candidates with existing attempts. Importing assigns candidates to the exam’s batch."}</p>
+      <p class="subtitle">Returning candidates need renewal approval. Payment rules apply when a receipt is required. Use Grant retake for another attempt on this exam.</p>
       <div class="row" style="margin-bottom:12px;">
-        ${['admin','super_admin'].includes(role)?`<button class="btn small" onclick="openExamCandidateImport(${examId})">Import candidates (CSV / Excel)</button>`:''}
+        ${!exam?.programme_wide && ['admin','super_admin'].includes(role)?`<button class="btn small" onclick="openExamCandidateImport(${examId})">Import candidates (CSV / Excel)</button>`:''}
         <button class="btn small secondary" id="bulkRescheduleBtn">Reschedule selected</button>
       </div>
       <div style="max-height:50vh; overflow-y:auto;">
@@ -1130,13 +1135,13 @@ window.openExamCandidates = async function (examId, examTitle) {
           ${candidates.map(c => `<tr>
             <td><input type="checkbox" class="candSelect" value="${c.user_id}" /></td>
             <td>${esc(c.full_name)}<div class="muted" style="font-size:11px;">${esc(c.email)}</div></td>
-            <td><span class="badge ${c.eligible?'green':'gray'}">${!c.in_exam_batch?'Assign to exam batch first':c.renewal_approved?'Renewal approved':c.candidate_type==='new'?'New candidate':c.attempts_used?'Existing attempt':'Returning — renewal approval needed'}</span></td>
+            <td><span class="badge ${c.eligible?'green':'gray'}">${c.attempts_used?'Existing attempt':!(c.in_exam_audience ?? c.in_exam_batch)?'Assign to exam batch first':c.renewal_approved?'Renewal approved':c.candidate_type==='new'?'New candidate':'Returning — renewal approval needed'}</span></td>
             <td><span class="badge ${statusBadge[c.latest_status] || 'gray'}">${c.latest_status.replace('_',' ')}</span></td>
             <td>${c.attempts_used}/${c.max_attempts}</td>
             <td>${c.has_schedule_override
               ? `<span class="badge gold">Custom</span> <button class="btn small ghost" onclick="clearReschedule(${examId}, ${c.user_id}, '${esc(examTitle)}')">Clear</button>`
               : '<span class="muted" style="font-size:12px;">Standard</span>'}</td>
-            <td>${c.candidate_type==='returning' && !c.attempts_used && ['admin','super_admin'].includes(role) ? `<button class="btn small secondary" ${!c.in_exam_batch && !c.renewal_approved?'disabled title="Assign candidate to this exam’s batch first"':''} onclick="setRenewalApproval(${examId},${c.user_id},${!c.renewal_approved})">${c.renewal_approved?'Revoke renewal approval':'Approve renewal'}</button>` : ''}
+            <td>${c.candidate_type==='returning' && !c.attempts_used && ['admin','super_admin'].includes(role) ? `<button class="btn small secondary" ${!(c.in_exam_audience ?? c.in_exam_batch) && !c.renewal_approved?'disabled title="Assign candidate to this exam’s batch first"':''} onclick="setRenewalApproval(${examId},${c.user_id},${!c.renewal_approved})">${c.renewal_approved?'Revoke renewal approval':'Approve renewal'}</button>` : ''}
             ${(c.attempts_used >= c.max_attempts && c.latest_status !== 'in_progress' && c.latest_status !== 'not_started')
               ? `<button class="btn small" onclick="grantRetakeFor(${examId}, ${c.user_id}, '${esc(c.full_name)}', '${esc(examTitle)}')">Grant retake</button>`
               : ''}</td>
@@ -1333,8 +1338,8 @@ document.getElementById("newExamBtn").addEventListener("click", async () => {
       <div id="examFormError" class="alert error hidden" role="alert"></div>
       <label for="eProgram">Training programme</label>
       <select id="eProgram" required>${programmes.map(p => `<option value="${p.id}" ${p.id === selectedProgramme ? "selected" : ""}>${esc(p.name)} (${esc(p.code)})</option>`).join("")}</select>
-      <label for="eBatch">Training batch</label>
-      <select id="eBatch" required disabled aria-describedby="eBatchStatus"><option value="">Loading training batches…</option></select>
+      <label for="eBatch">Exam audience</label>
+      <select id="eBatch" required aria-describedby="eBatchStatus"><option value="programme">Whole registered programme</option></select>
       <small id="eBatchStatus" class="muted" role="status"></small>
       <details id="eCreateBatch" class="hidden">
         <summary>Create a training batch</summary>
@@ -1348,7 +1353,7 @@ document.getElementById("newExamBtn").addEventListener("click", async () => {
       <label>Instructions (shown to candidates)</label><textarea id="eInstr"></textarea>
       <div class="grid cols-3">
         <div><label>Duration (min)</label><input type="number" id="eDuration" value="120" min="15" max="300" required /></div>
-        <div><label for="eQCount">Questions per candidate</label><input type="number" id="eQCount" value="50" min="1" max="200" required aria-describedby="eQuestionStatus" /><small id="eQuestionStatus" class="muted" role="status"></small></div>
+        <div><label for="eQCount">Questions per candidate</label><input type="number" id="eQCount" value="50" min="1" required aria-describedby="eQuestionStatus" /><small id="eQuestionStatus" class="muted" role="status"></small></div>
         <div><label>Total marks</label><input type="number" id="eMarks" value="100" min="0.01" step="any" required /></div>
       </div>
       <div class="grid cols-2">
@@ -1401,39 +1406,29 @@ document.getElementById("newExamBtn").addEventListener("click", async () => {
     }
     throw new Error(`Could not load ${label}. Use Retry loading to try again.`);
   };
-  const refreshProgramme = (selectedBatch = "") => {
+  const refreshProgramme = (selectedBatch = "programme") => {
     const version = ++loadVersion;
     const isCurrent = () => version === loadVersion && form.isConnected;
     const query = `?training_program_id=${encodeURIComponent(programme.value)}`;
     formError.classList.add("hidden");
     retry.classList.add("hidden");
     batchCreator.classList.add("hidden");
-    batch.disabled = true;
     available = 0;
     bankIds = [];
     updateSchedule();
-    batch.innerHTML = '<option value="">Loading training batches…</option>';
-    batchStatus.textContent = "";
+    batch.innerHTML = '<option value="programme">Whole registered programme</option>';
+    batchStatus.textContent = "Loading optional training batches…";
     questionStatus.textContent = "Checking active questions…";
     loadOptions(`${API}/admin/training-batches${query}`, "training batches").then(options => {
       if (!isCurrent()) return;
-      batch.innerHTML = options.length
-        ? '<option value="">Select a training batch</option>' +
-          options.map(option => `<option value="${option.id}">${esc(option.name)}</option>`).join("")
-        : '<option value="">No training batches yet</option>';
-      batch.disabled = !options.length;
+      batch.innerHTML = '<option value="programme">Whole registered programme</option>' +
+        options.map(option => `<option value="${option.id}">Batch: ${esc(option.name)}</option>`).join("");
       if (options.some(option => String(option.id) === selectedBatch)) batch.value = selectedBatch;
       batchCreator.classList.toggle("hidden", !canCreateBatch);
-      batchCreator.open = canCreateBatch && !options.length;
-      batchStatus.textContent = options.length
-        ? "Choose a batch. Only eligible members of that batch receive the exam."
-        : canCreateBatch
-          ? "Enter a batch name below to continue. Assign candidates from Training batches."
-          : "Ask an administrator to create a batch for this programme.";
+      batchStatus.textContent = "Choose the whole programme or limit the exam to one training batch.";
       updateSchedule();
     }).catch(error => {
       if (!isCurrent()) return;
-      batch.innerHTML = '<option value="">Training batches unavailable</option>';
       batchStatus.textContent = error.message;
       retry.classList.remove("hidden");
     });
@@ -1442,7 +1437,7 @@ document.getElementById("newExamBtn").addEventListener("click", async () => {
       if (!isCurrent()) return;
       bankIds = banks.map(bank => bank.id);
       available = banks.reduce((total, bank) => total + bank.question_count, 0);
-      questions.max = Math.min(200, Math.max(1, available));
+      questions.max = Math.max(1, available);
       if (available && !questionCountEdited) {
         questions.value = Math.min(Number(questions.defaultValue), Number(questions.max));
       }
@@ -1485,11 +1480,7 @@ document.getElementById("newExamBtn").addEventListener("click", async () => {
       if (!form.isConnected) return;
       batchName.value = "";
       batchCreator.open = false;
-      if (batch.disabled) {
-        batch.options[0].textContent = "Select a training batch";
-        batch.disabled = false;
-      }
-      batch.add(new Option(created.name, created.id));
+      batch.add(new Option(`Batch: ${created.name}`, created.id));
       batch.value = String(created.id);
       batchStatus.textContent = "Batch created and selected. Assign its candidates from Training batches.";
     } catch (error) {
@@ -1520,13 +1511,15 @@ document.getElementById("newExamBtn").addEventListener("click", async () => {
       if (!Number.isFinite(startTime.getTime()) || !Number.isFinite(endTime.getTime()))
         throw new Error("Enter valid start and end times.");
       if (endTime <= startTime) throw new Error("End time must be after start time.");
-      const batchId = Number(batch.value);
-      if (!batchId) throw new Error("Select a training batch.");
+      const programmeWide = batch.value === "programme";
+      const batchId = programmeWide ? null : Number(batch.value);
+      if (!programmeWide && !batchId) throw new Error("Choose an exam audience.");
       const res = await fetch(`${API}/exams`, {
         method: "POST", headers: jsonHeaders(),
         body: JSON.stringify({
           training_program_id: Number(programme.value),
           batch_id: batchId,
+          programme_wide: programmeWide,
           title,
           instructions: field("eInstr").value.trim(),
           duration_minutes: field("eDuration").valueAsNumber,
@@ -2107,7 +2100,7 @@ function renderGovernancePage(kind) {
   if (isPayment) {
     list.innerHTML = shown.length ? `<table class="governance-record-table"><thead><tr><th>Candidate</th><th>Exam</th><th>Uploaded document</th><th>Reference</th><th>Uploaded</th><th>Actions</th></tr></thead><tbody>${shown.map(paymentRow).join('')}</tbody></table>` : '<div class="empty-state">No matching payment receipts.</div>';
   } else {
-    list.innerHTML = shown.length ? `<table class="governance-record-table"><thead><tr><th>Candidate</th><th>Programme</th><th>Exam</th><th>Receipt</th><th>Access</th><th>Admin action</th></tr></thead><tbody>${shown.map(a=>`<tr><td>${esc(a.candidate)}<div class="muted">${esc(a.email)}</div></td><td>${esc(a.programme)}</td><td>${esc(a.exam)}</td><td><span class="badge ${a.receipt_status==='approved'?'green':a.receipt_status==='rejected'?'red':'gold'}">${esc(a.receipt_status.replaceAll('_',' '))}</span></td><td><span class="badge ${a.can_start?'green':'gray'}">${a.has_started?'Started':a.eligible===false?'Batch assignment / renewal needed':!a.payment_required?'Receipt not required':a.admin_granted?'Admin granted':a.receipt_status==='approved'?'Payment approved':'Blocked'}</span></td><td>${a.has_started?'<span class="muted">Attempt already started</span>':`<button class="btn small ${a.admin_granted?'danger':'secondary'}" onclick="setExamAccess(${a.user_id},${a.exam_id},${!a.admin_granted})">${a.admin_granted?'Revoke admin access':'Grant access'}</button>`}</td></tr>`).join('')}</tbody></table>` : '<div class="empty-state">No matching candidate exam access records.</div>';
+    list.innerHTML = shown.length ? `<table class="governance-record-table"><thead><tr><th>Candidate</th><th>Programme</th><th>Exam</th><th>Receipt</th><th>Access</th><th>Admin action</th></tr></thead><tbody>${shown.map(a=>`<tr><td>${esc(a.candidate)}<div class="muted">${esc(a.email)}</div></td><td>${esc(a.programme)}</td><td>${esc(a.exam)}</td><td><span class="badge ${a.receipt_status==='approved'?'green':a.receipt_status==='rejected'?'red':'gold'}">${esc(a.receipt_status.replaceAll('_',' '))}</span></td><td><span class="badge ${a.can_start?'green':'gray'}">${a.has_started?'Started':a.eligible===false?'Batch assignment / renewal needed':!a.payment_required?'Receipt not required':a.receipt_status==='approved'?'Payment approved':'Blocked'}</span></td><td>${a.admin_granted?`<button class="btn small secondary" onclick="setExamAccess(${a.user_id},${a.exam_id},false)">Remove previous override</button>`:'<span class="muted">—</span>' }</td></tr>`).join('')}</tbody></table>` : '<div class="empty-state">No matching candidate exam access records.</div>';
   }
   document.getElementById(isPayment ? 'paymentPagination' : 'accessPagination').innerHTML = `<span>${rows.length ? `${(page-1)*governancePageSize+1}–${Math.min(page*governancePageSize,rows.length)} of ${rows.length}` : '0 records'}</span><div class="row"><button class="btn small secondary" type="button" aria-label="Previous page" onclick="changeGovernancePage('${kind}',-1)" ${page===1?'disabled':''}>&larr;</button><span>Page ${page} of ${pages}</span><button class="btn small secondary" type="button" aria-label="Next page" onclick="changeGovernancePage('${kind}',1)" ${page===pages?'disabled':''}>&rarr;</button></div>`;
 }

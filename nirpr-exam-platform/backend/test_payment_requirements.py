@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 import main
 import schemas
 from database import Base
-from models import User, UserRole, TrainingProgram, CandidateProfile, Exam, ExamStatus, ExamPolicy, PaymentReceipt, ExamAccessGrant, ExamAttempt, TrainingBatch, CandidateBatchAssignment, ExamBatchAssignment, QuestionBank, Question
+from models import User, UserRole, TrainingProgram, CandidateProfile, Exam, ExamStatus, ExamPolicy, PaymentReceipt, ExamAccessGrant, ExamAttempt, AttemptStatus, TrainingBatch, CandidateBatchAssignment, ExamBatchAssignment, QuestionBank, Question
 
 
 @pytest_asyncio.fixture
@@ -64,19 +64,21 @@ async def test_toggle_updates_lists_preserves_policy_and_other_exam(setup):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("required,access", [(None,None),(False,None),(True,"started"),(True,None),(True,"pending"),(True,"rejected"),(True,"approved"),(True,"grant")])
+@pytest.mark.parametrize("required,access", [(None,None),(False,None),(True,"started"),(True,"completed"),(True,None),(True,"pending"),(True,"rejected"),(True,"approved"),(True,"grant")])
 async def test_start_gate_matches_candidate_list(setup,monkeypatch,required,access):
     db,admin,candidate,exam,other=setup
     if required is not None:
         await main.update_payment_requirement(exam.id, schemas.ExamPaymentRequirement(payment_required=required),admin,db)
     if access == "started":
-        db.add(ExamAttempt(user_id=candidate.id, exam_id=exam.id))
+        db.add(ExamAttempt(user_id=candidate.id, exam_id=exam.id, status=AttemptStatus.IN_PROGRESS))
+    elif access == "completed":
+        db.add(ExamAttempt(user_id=candidate.id, exam_id=exam.id, status=AttemptStatus.SUBMITTED))
     elif access == "grant":
         db.add(ExamAccessGrant(user_id=candidate.id,exam_id=exam.id,granted_by=admin.id))
     elif access:
         db.add(PaymentReceipt(user_id=candidate.id,exam_id=exam.id,status=access,file_name="test.pdf",stored_path="unused"))
     await db.commit()
-    allowed = not required or access in ("approved","grant","started")
+    allowed = not required or access in ("approved","started")
     listed={row.id:row for row in await main.list_exams(None,candidate,db)}
     assert listed[exam.id].can_start is allowed
     # Stop at the engine boundary: verify the payment gate without sitting an exam.
@@ -102,18 +104,24 @@ async def test_scheduled_exam_receipt_switch_controls_real_start(setup, monkeypa
     bank = QuestionBank(training_program_id=exam.training_program_id, name="Scheduling bank", created_by=admin.id)
     db.add(bank)
     await db.flush()
-    db.add(Question(question_bank_id=bank.id, question_text="Sample question",
-                    options={"A": "Answer", "B": "Distractor"}, correct_answer=["A"]))
+    db.add_all([
+        Question(question_bank_id=bank.id, question_text=f"Sample question {index}",
+                 options={"A": "Answer", "B": "Distractor"}, correct_answer=["A"])
+        for index in range(201)
+    ])
+    await db.delete(await db.get(CandidateBatchAssignment, candidate.id))
     await db.commit()
-    batch = (await db.execute(select(ExamBatchAssignment).where(
-        ExamBatchAssignment.exam_id == exam.id))).scalar_one()
     saved = await main.create_exam(schemas.ExamCreate(
-        training_program_id=exam.training_program_id, batch_id=batch.batch_id,
-        title="Scheduled receipt check", questions_per_exam=1, question_bank_ids=[bank.id],
+        training_program_id=exam.training_program_id, programme_wide=True,
+        title="Scheduled receipt check", questions_per_exam=201, question_bank_ids=[bank.id],
         start_time=exam.start_time, end_time=exam.end_time, payment_required=required,
     ), admin, db)
+    with pytest.raises(HTTPException, match="Need 202, have 201"):
+        await main.update_exam(saved.id, schemas.ExamUpdate(questions_per_exam=202), admin, db)
 
     row = next(row for row in await main.list_exams(None, candidate, db) if row.id == saved.id)
+    assert row.programme_wide and row.batch_id is None
+    assert row.training_program_id == exam.training_program_id
     assert row.payment_required is required
     assert row.can_start is not required
     request = Request({"type": "http", "headers": [], "client": ("127.0.0.1", 1234)})
@@ -125,7 +133,7 @@ async def test_scheduled_exam_receipt_switch_controls_real_start(setup, monkeypa
             saved.id, schemas.ExamPaymentRequirement(payment_required=False), admin, db,
         )
     attempt = await main.start_exam(saved.id, request, candidate, db)
-    assert attempt.total_questions == 1
+    assert attempt.total_questions == 201
 
 
 @pytest.mark.asyncio

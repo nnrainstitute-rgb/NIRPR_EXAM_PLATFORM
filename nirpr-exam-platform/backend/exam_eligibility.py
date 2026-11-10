@@ -1,4 +1,4 @@
-"""Training batches and renewal approval govern admission, separately from payment."""
+"""Programme registration, exam audience and renewal govern admission separately from payment."""
 from sqlalchemy import select
 from fastapi import HTTPException
 from models import (CandidateProfile, User, UserRole, ExamAttempt, ExamRenewalApproval,
@@ -23,24 +23,34 @@ async def batch_candidate_ids(db, exam):
             User.role == UserRole.CANDIDATE, User.is_active == True))).scalars().all())
 
 
+async def programme_candidate_ids(db, exam):
+    return set((await db.execute(select(User.id).join(
+        CandidateProfile, CandidateProfile.user_id == User.id
+    ).where(CandidateProfile.training_program_id == exam.training_program_id,
+            User.is_active == True, User.role == UserRole.CANDIDATE))).scalars().all())
+
+
+async def exam_audience_ids(db, exam):
+    if exam.programme_wide:
+        return await programme_candidate_ids(db, exam)
+    return await batch_candidate_ids(db, exam)
+
+
 async def eligible_candidate_ids(db, exam):
-    candidates = await batch_candidate_ids(db, exam)
+    candidates = await exam_audience_ids(db, exam)
     returning = await candidate_history(db)
     current = set((await db.execute(select(ExamAttempt.user_id).where(
         ExamAttempt.exam_id == exam.id))).scalars().all())
     approved = set((await db.execute(select(ExamRenewalApproval.user_id).where(
         ExamRenewalApproval.exam_id == exam.id))).scalars().all())
     # Reassignment must not strand an existing attempt or erase its history.
-    active_programme = set((await db.execute(select(User.id).join(
-        CandidateProfile, CandidateProfile.user_id == User.id
-    ).where(CandidateProfile.training_program_id == exam.training_program_id,
-            User.is_active == True, User.role == UserRole.CANDIDATE))).scalars().all())
+    active_programme = candidates if exam.programme_wide else await programme_candidate_ids(db, exam)
     return (candidates & ((candidates - returning) | approved)) | (current & active_programme)
 
 
 async def require_exam_eligibility(db, exam, candidate):
     if candidate.id not in await eligible_candidate_ids(db, exam):
         raise HTTPException(status_code=403, detail=(
-            "You are not eligible for this examination. Your administrator must assign you to its "
-            "training batch and approve renewal if you have previously attempted an exam."
+            "You are not eligible for this examination. Check your programme registration, "
+            "training batch if required, and renewal approval if you have previously attempted an exam."
         ))

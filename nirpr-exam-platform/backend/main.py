@@ -39,7 +39,7 @@ from models import (
 )
 import schemas
 from question_options import balanced_correct_labels, redistribute_options
-from exam_eligibility import batch_candidate_ids, candidate_history, eligible_candidate_ids, require_exam_eligibility
+from exam_eligibility import candidate_history, eligible_candidate_ids, exam_audience_ids, require_exam_eligibility
 from auth import (
     verify_password, get_password_hash, create_access_token, get_current_user,
     require_admin, require_examiner, require_candidate, require_any, require_role,
@@ -132,7 +132,7 @@ async def notify_exam_schedule(db: AsyncSession, exam: Exam, is_update: bool = F
     candidates = (await db.execute(select(User).join(CandidateProfile, CandidateProfile.user_id == User.id).where(
         CandidateProfile.training_program_id == exam.training_program_id, User.role == UserRole.CANDIDATE,
         User.is_active == True))).scalars().all()
-    eligible = (await eligible_candidate_ids(db, exam)) & (await batch_candidate_ids(db, exam))
+    eligible = (await eligible_candidate_ids(db, exam)) & (await exam_audience_ids(db, exam))
     if user_ids is not None:
         eligible &= set(user_ids)
     candidates = [candidate for candidate in candidates if candidate.id in eligible]
@@ -1208,6 +1208,26 @@ async def assign_training_batch(data: schemas.CandidateBatchUpdate,current_user:
     return {"detail":f"Assigned {len(changed)} candidate(s) to {batch.name}","changed":len(changed)}
 
 
+async def validate_exam_question_count(db, programme_id, count, bank_ids=()):
+    available = (await db.execute(
+        select(func.count(Question.id)).where(
+            Question.question_bank_id.in_(
+                select(QuestionBank.id).where(
+                    QuestionBank.training_program_id == programme_id,
+                    QuestionBank.id.in_(bank_ids) if bank_ids else True,
+                )
+            ),
+            Question.is_active == True,
+        )
+    )).scalar_one()
+    if count > available:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Not enough active questions for this training program. "
+                   f"Need {count}, have {available}. Add more questions first.",
+        )
+
+
 @app.post("/api/exams", response_model=schemas.ExamResponse, tags=["Exams"])
 async def create_exam(
     data: schemas.ExamCreate,
@@ -1220,35 +1240,15 @@ async def create_exam(
     result = await db.execute(select(TrainingProgram).where(TrainingProgram.id == data.training_program_id))
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Training program not found")
+    await validate_exam_question_count(db, data.training_program_id, data.questions_per_exam, data.question_bank_ids)
 
-    available = (await db.execute(
-        select(func.count(Question.id)).where(
-            Question.question_bank_id.in_(
-                select(QuestionBank.id).where(
-                    QuestionBank.training_program_id == data.training_program_id,
-                    QuestionBank.id.in_(data.question_bank_ids) if data.question_bank_ids else True,
-                )
-            ),
-            Question.is_active == True,
-        )
-    )).scalar()
-
-    if (available or 0) < data.questions_per_exam:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Not enough active questions for this training program. "
-                   f"Need {data.questions_per_exam}, have {available or 0}. Add more questions first.",
-        )
-
-    batch = (await db.execute(select(TrainingBatch).where(TrainingBatch.id == data.batch_id,
-        TrainingBatch.training_program_id == data.training_program_id))).scalar_one_or_none()
-    if batch is None:
-        raise HTTPException(status_code=400, detail="Select a training batch belonging to this programme")
+    await validate_exam_audience(db, data.training_program_id, data.programme_wide, data.batch_id)
     payload = data.model_dump(exclude={"question_bank_ids", "batch_id", "payment_required"})
     exam = Exam(**payload, created_by=current_user.id, status=ExamStatus.SCHEDULED)
     db.add(exam)
     await db.flush()
-    db.add(ExamBatchAssignment(exam_id=exam.id,batch_id=data.batch_id))
+    if data.batch_id is not None:
+        db.add(ExamBatchAssignment(exam_id=exam.id, batch_id=data.batch_id))
     if data.payment_required:
         db.add(ExamPolicy(exam_id=exam.id, payment_required=True))
     await db.commit()
@@ -1259,14 +1259,23 @@ async def create_exam(
     return resp
 
 
+async def validate_exam_audience(db, programme_id, programme_wide, batch_id):
+    if programme_wide:
+        if batch_id is not None:
+            raise HTTPException(status_code=400, detail="Choose either the whole programme or one training batch")
+        return
+    batch = await db.get(TrainingBatch, batch_id) if batch_id is not None else None
+    if batch is None or batch.training_program_id != programme_id:
+        raise HTTPException(status_code=400, detail="Select a training batch belonging to this programme")
+
+
 @app.get("/api/exams", response_model=List[schemas.ExamListResponse], tags=["Exams"])
 async def list_exams(training_program_id: Optional[int] = None,
                      current_user: User = Depends(require_any), db: AsyncSession = Depends(get_db)):
     q = select(Exam, TrainingProgram).join(TrainingProgram, Exam.training_program_id == TrainingProgram.id)
     candidate_completed_exam_ids = None
     candidate_approved_exam_ids = set()
-    candidate_granted_exam_ids = set()
-    candidate_started_exam_ids = set()
+    candidate_in_progress_exam_ids = set()
     candidate_windows = {}
 
     if training_program_id:
@@ -1304,11 +1313,10 @@ async def list_exams(training_program_id: Optional[int] = None,
                 PaymentReceipt.status == "approved",
             )
         )).scalars().all())
-        candidate_granted_exam_ids = set((await db.execute(
-            select(ExamAccessGrant.exam_id).where(ExamAccessGrant.user_id == current_user.id)
-        )).scalars().all())
-        candidate_started_exam_ids = set((await db.execute(
-            select(ExamAttempt.exam_id).where(ExamAttempt.user_id == current_user.id)
+        candidate_in_progress_exam_ids = set((await db.execute(
+            select(ExamAttempt.exam_id).where(
+                ExamAttempt.user_id == current_user.id, ExamAttempt.status == AttemptStatus.IN_PROGRESS
+            )
         )).scalars().all())
         candidate_windows = {
             exam_id: (start, end)
@@ -1354,10 +1362,8 @@ async def list_exams(training_program_id: Optional[int] = None,
         if current_user.role == UserRole.CANDIDATE:
             if not payment_required:
                 access_status = "payment_not_required"
-            elif exam.id in candidate_started_exam_ids:
+            elif exam.id in candidate_in_progress_exam_ids:
                 access_status = "started"
-            elif exam.id in candidate_granted_exam_ids:
-                access_status = "admin_granted"
             elif exam.id in candidate_approved_exam_ids:
                 access_status = "payment_approved"
             else:
@@ -1366,6 +1372,7 @@ async def list_exams(training_program_id: Optional[int] = None,
                 access_message = "Upload a payment receipt and wait for admin approval before participating in this exam."
         out.append(schemas.ExamListResponse(
             id=exam.id,
+            programme_wide=exam.programme_wide,
             batch_id=exam_batches.get(exam.id, (None, None))[0],
             batch_name=exam_batches.get(exam.id, (None, None))[1],
             training_program_id=exam.training_program_id,
@@ -1385,7 +1392,7 @@ async def list_exams(training_program_id: Optional[int] = None,
             status=display_status,
             questions_per_exam=exam.questions_per_exam,
             registered_candidates=reg or 0,
-            assigned_candidates=len(await batch_candidate_ids(db, exam)),
+            assigned_candidates=len(await exam_audience_ids(db, exam)),
             can_start=can_start,
             payment_required=payment_required,
             access_status=access_status,
@@ -1412,15 +1419,25 @@ async def update_exam(
     locked_fields = {"questions_per_exam", "randomize_questions", "randomize_options"}
     incoming = data.model_dump(exclude_unset=True)
     batch_id = incoming.pop("batch_id", None)
-    if batch_id is not None:
+    programme_wide = incoming.pop("programme_wide", None)
+    audience_updated = programme_wide is not None or batch_id is not None
+    if "questions_per_exam" in incoming:
+        count = incoming["questions_per_exam"]
+        if count is None:
+            raise HTTPException(status_code=400, detail="Enter the number of questions per candidate")
+        if count != exam.questions_per_exam and not has_attempts:
+            await validate_exam_question_count(db, exam.training_program_id, count)
+
+    if audience_updated:
         if has_attempts:
-            raise HTTPException(status_code=400, detail="Cannot change the batch after an exam attempt exists")
-        batch = (await db.execute(select(TrainingBatch).where(TrainingBatch.id==batch_id,
-            TrainingBatch.training_program_id==exam.training_program_id))).scalar_one_or_none()
-        if batch is None:
-            raise HTTPException(status_code=400, detail="Batch does not belong to this exam's programme")
-        assignment = (await db.execute(select(ExamBatchAssignment).where(ExamBatchAssignment.exam_id==exam_id))).scalar_one_or_none()
-        if assignment:
+            raise HTTPException(status_code=400, detail="Cannot change the audience after an exam attempt exists")
+        await validate_exam_audience(db, exam.training_program_id, programme_wide, batch_id)
+        assignment = await db.get(ExamBatchAssignment, exam_id)
+        exam.programme_wide = bool(programme_wide)
+        if programme_wide:
+            if assignment is not None:
+                await db.delete(assignment)
+        elif assignment is not None:
             assignment.batch_id = batch_id
         else:
             db.add(ExamBatchAssignment(exam_id=exam_id,batch_id=batch_id))
@@ -1439,7 +1456,7 @@ async def update_exam(
         setattr(exam, field, value)
     await db.commit()
     await db.refresh(exam)
-    if batch_id is not None or {"title", "start_time", "end_time", "duration_minutes"} & incoming.keys():
+    if audience_updated or {"title", "start_time", "end_time", "duration_minutes"} & incoming.keys():
         await notify_exam_schedule(db, exam, is_update=True)
     await log_audit(db, "exam_update", user_id=current_user.id, entity_type="exam", entity_id=exam.id)
     return schemas.ExamResponse.model_validate(exam)
@@ -1523,24 +1540,19 @@ async def start_exam(
     if exam is None:
         raise HTTPException(status_code=404, detail="Exam not found")
     await require_exam_eligibility(db, exam, current_user)
-    existing_attempt = (await db.execute(select(ExamAttempt.id).where(
-        ExamAttempt.exam_id == exam_id, ExamAttempt.user_id == current_user.id
+    in_progress = (await db.execute(select(ExamAttempt.id).where(
+        ExamAttempt.exam_id == exam_id, ExamAttempt.user_id == current_user.id,
+        ExamAttempt.status == AttemptStatus.IN_PROGRESS,
     ).limit(1))).scalar_one_or_none()
     approved_receipt = (await db.execute(select(PaymentReceipt.id).where(
         PaymentReceipt.exam_id == exam_id, PaymentReceipt.user_id == current_user.id,
         PaymentReceipt.status == "approved"
     ))).scalar_one_or_none()
-    admin_grant = (await db.execute(select(ExamAccessGrant.id).where(
-        ExamAccessGrant.exam_id == exam_id, ExamAccessGrant.user_id == current_user.id
-    ))).scalar_one_or_none()
     payment_required = (await db.execute(select(ExamPolicy.payment_required).where(
         ExamPolicy.exam_id == exam_id
     ))).scalar_one_or_none()
-    if payment_required and not (existing_attempt or approved_receipt or admin_grant):
-        raise HTTPException(status_code=403, detail=(
-            "You cannot participate in this exam until your payment receipt is approved "
-            "or an administrator grants you access."
-        ))
+    if payment_required and not (in_progress or approved_receipt):
+        raise HTTPException(status_code=403, detail="You cannot start this exam until your payment receipt is approved.")
     attempt = await ExamEngine.start_exam(
         db, exam_id, current_user,
         ip_address=get_client_ip(request),
@@ -2086,9 +2098,9 @@ async def list_exam_candidates(
 
     returning = await candidate_history(db, exam.training_program_id, exclude_exam_id=exam.id)
     eligible = await eligible_candidate_ids(db, exam)
-    batch_members = await batch_candidate_ids(db, exam)
+    audience = await exam_audience_ids(db, exam)
     existing_candidate_ids = set((await db.execute(select(ExamAttempt.user_id).where(ExamAttempt.exam_id==exam_id))).scalars().all())
-    rows = [(user,profile) for user,profile in rows if user.id in batch_members or user.id in existing_candidate_ids]
+    rows = [(user,profile) for user,profile in rows if user.id in audience or user.id in existing_candidate_ids]
     invitations = set((await db.execute(select(ExamRenewalApproval.user_id).where(
         ExamRenewalApproval.exam_id == exam.id))).scalars().all())
     out = []
@@ -2109,7 +2121,8 @@ async def list_exam_candidates(
             "institution": profile.institution,
             "candidate_type": "returning" if user.id in returning else "new",
             "renewal_approved": user.id in invitations,
-            "in_exam_batch": user.id in batch_members,
+            "in_exam_batch": user.id in audience and not exam.programme_wide,
+            "in_exam_audience": user.id in audience,
             "eligible": user.id in eligible,
             "latest_status": latest_attempt.status.value if latest_attempt else "not_started",
             "attempts_used": latest_attempt.attempt_number if latest_attempt else 0,
@@ -2131,7 +2144,7 @@ async def set_renewal_approval(exam_id: int, user_id: int, data: schemas.ExamRen
     ))).scalar_one_or_none()
     if exam is None or candidate is None:
         raise HTTPException(status_code=404, detail="Exam or candidate in this programme not found")
-    if data.approved and user_id not in await batch_candidate_ids(db, exam):
+    if data.approved and user_id not in await exam_audience_ids(db, exam):
         raise HTTPException(status_code=400, detail="Assign this candidate to the exam's training batch before approving renewal")
     if exam.status not in (ExamStatus.SCHEDULED, ExamStatus.ACTIVE) or exam.end_time < datetime.utcnow():
         raise HTTPException(status_code=400, detail="Choose an upcoming or active exam for a renewal approval")
@@ -3166,7 +3179,8 @@ async def list_exam_access(training_program_id: Optional[int] = None,
                 ExamAccessGrant.user_id == user.id, ExamAccessGrant.exam_id == exam.id
             ))).scalar_one_or_none()
             started = (await db.execute(select(ExamAttempt.id).where(
-                ExamAttempt.user_id == user.id, ExamAttempt.exam_id == exam.id
+                ExamAttempt.user_id == user.id, ExamAttempt.exam_id == exam.id,
+                ExamAttempt.status == AttemptStatus.IN_PROGRESS,
             ).limit(1))).scalar_one_or_none()
             rows.append({
                 "user_id": user.id, "candidate": user.full_name, "email": user.email,
@@ -3175,7 +3189,7 @@ async def list_exam_access(training_program_id: Optional[int] = None,
                 "has_started": bool(started),
                 "eligible": user.id in eligibility[exam.id],
                 "payment_required": bool(payment_flags.get(exam.id, False)),
-                "can_start": bool(user.id in eligibility[exam.id] and (not payment_flags.get(exam.id, False) or started or grant or receipt == "approved")),
+                "can_start": bool(user.id in eligibility[exam.id] and (not payment_flags.get(exam.id, False) or started or receipt == "approved")),
             })
     return rows
 
@@ -3192,26 +3206,17 @@ async def update_exam_access(data: schemas.ExamAccessUpdate,
         raise HTTPException(status_code=404, detail="Candidate or exam not found")
     if candidate[1].training_program_id != exam.training_program_id:
         raise HTTPException(status_code=400, detail="Candidate is not registered for this exam's training programme")
+    if data.granted:
+        raise HTTPException(status_code=400, detail="Exam access is determined by eligibility and the exam's receipt requirement")
     grant = (await db.execute(select(ExamAccessGrant).where(
         ExamAccessGrant.user_id == data.user_id, ExamAccessGrant.exam_id == data.exam_id
     ))).scalar_one_or_none()
-    if data.granted and not grant:
-        db.add(ExamAccessGrant(user_id=data.user_id, exam_id=data.exam_id, granted_by=current_user.id))
-    elif not data.granted and grant:
+    if grant:
         await db.delete(grant)
-    db.add(Notification(
-        user_id=data.user_id,
-        title="Examination access updated",
-        message=(f"An administrator granted you access to {exam.title}."
-                 if data.granted else f"Your administrative access to {exam.title} was removed."),
-        notification_type="exam_access",
-    ))
-    await db.commit()
-    await log_audit(db, "exam_access_grant" if data.granted else "exam_access_revoke",
-                    user_id=current_user.id, entity_type="user", entity_id=data.user_id,
-                    details={"exam_id": data.exam_id})
-    return {"detail": "Exam access granted" if data.granted else "Exam access revoked",
-            "granted": data.granted}
+        await db.commit()
+        await log_audit(db, "exam_access_revoke", user_id=current_user.id, entity_type="user",
+                        entity_id=data.user_id, details={"exam_id": exam.id})
+    return {"detail": "Previous access override removed", "granted": False}
 
 
 @app.get("/api/admin/payments/{receipt_id}/file", tags=["Payments"])
