@@ -45,7 +45,7 @@ def test_blank_signature_rejected():
 
 def test_pdf_has_short_number_and_restored_original_text():
     number=certificate_number("RSO-NWLST",datetime(2026,10,24),5,6)
-    pdf=build_certificate_pdf(candidate_name="Sample Candidate",programme_name="RSO",practice_area="Nuclear Well Logging",exam_title="Final",score=85,issued_on=datetime(2026,10,24),certificate_no=number)
+    pdf=build_certificate_pdf(candidate_name="Sample Candidate",programme_name="Radiation Safety & Quality Assurance",practice_area="Nuclear Well Logging",exam_title="Final",score=85,issued_on=datetime(2026,10,24),certificate_no=number)
     text=PdfReader(BytesIO(pdf)).pages[0].extract_text().upper()
     assert number in text
     assert "NATIONAL INSTITUTE OF RADIATION PROTECTION AND RESEARCH" in text
@@ -53,6 +53,9 @@ def test_pdf_has_short_number_and_restored_original_text():
     assert "GENERAL MANAGER" in text and "COURSE COORDINATOR" in text
     assert "AS TECHNICAL SUPPORT ORGANIZATION TO THE" in text
     assert "ESTABLISHED BY S.11(5)" in text
+    assert "SUCCESSFULLY COMPLETED THE RADIATION SAFETY & QUALITY ASSURANCE" in " ".join(text.split())
+    assert "NATIONAL TRAINING COURSE FOR RADIATION SAFETY OFFICERS IN" not in text
+    assert "NUCLEAR WELL LOGGING" not in text
     assert "SCORE" not in text
     assert "85.0%" not in text
     assert "ISSUED 24 OCTOBER 2026" in text

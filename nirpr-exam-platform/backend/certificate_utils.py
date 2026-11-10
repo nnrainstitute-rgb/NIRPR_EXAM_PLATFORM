@@ -160,11 +160,7 @@ def build_certificate_pdf(*, candidate_name: str, programme_name: str,
     y = page_height - 101 * mm
     y = _centered_paragraph(pdf, "Successfully completed the", body_style, y, page_width - 85 * mm)
     y -= 2 * mm
-    y = _centered_paragraph(pdf,
-        "NATIONAL TRAINING COURSE FOR RADIATION SAFETY OFFICERS IN",
-        emphasis_style, y, page_width - 75 * mm)
-    y -= 1.5 * mm
-    course_text = escape(practice_area or programme_name).upper()
+    course_text = escape(programme_name.strip().upper())
     y = _centered_paragraph(pdf, course_text, emphasis_style, y, page_width - 65 * mm, 22 * mm)
     y -= 2 * mm
     y = _centered_paragraph(pdf, "Held at", body_style, y, page_width - 80 * mm)
