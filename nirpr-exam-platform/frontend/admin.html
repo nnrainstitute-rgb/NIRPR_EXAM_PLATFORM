@@ -490,16 +490,17 @@ document.getElementById("newProgramBtn").addEventListener("click", () => {
   openModal(`
     <h2 class="mt-0">New training programme</h2>
     <form id="programForm">
-      <label>Code</label><input id="pCode" required placeholder="e.g. RSO-DIAG-RAD" />
-      <label>Name</label><input id="pName" required />
-      <label>Practice area</label><input id="pArea" required placeholder="e.g. Diagnostic Radiology" />
-      <label>Description</label><textarea id="pDesc"></textarea>
+      <label for="pCode">Code</label><input id="pCode" required minlength="2" maxlength="20" placeholder="e.g. RSO-DIAG-RAD" />
+      <label for="pName">Name</label><input id="pName" required minlength="3" maxlength="200" />
+      <label for="pArea">Practice area</label><input id="pArea" required minlength="2" maxlength="100" placeholder="e.g. Diagnostic Radiology" />
+      <label for="pDesc">Description</label><textarea id="pDesc"></textarea>
       <div class="grid cols-2">
-        <div><label>Duration (days)</label><input type="number" id="pDuration" value="5" min="1" /></div>
-        <div><label>Passing score (%)</label><input type="number" id="pPass" value="70" min="0" max="100" /></div>
+        <div><label for="pDuration">Duration (1–30 days)</label><input type="number" id="pDuration" value="5" min="1" max="30" required /></div>
+        <div><label for="pPass">Passing score (%)</label><input type="number" id="pPass" value="70" min="0" max="100" step="any" required /></div>
       </div>
       <label style="display:flex;gap:9px;align-items:flex-start;padding:12px;border:1px solid var(--border);border-radius:9px"><input type="checkbox" id="pGenerateQuestions" style="width:auto;margin-top:3px" checked><span>Generate an editable starter question bank after creating this programme</span></label>
       <div id="pQuestionCountWrap"><label>Number of starter questions</label><input type="number" id="pQuestionCount" value="15" min="5" max="30"></div>
+      <div id="programFormError" class="alert error hidden" role="alert"></div>
       <div class="row" style="margin-top:20px;">
         <button type="button" class="btn secondary block" onclick="closeModal()">Cancel</button>
         <button type="submit" class="btn block">Create</button>
@@ -508,6 +509,16 @@ document.getElementById("newProgramBtn").addEventListener("click", () => {
   `);
   document.getElementById("programForm").addEventListener("submit", async (e) => {
     e.preventDefault();
+    const form = e.currentTarget;
+    const submitButton = form.querySelector('button[type="submit"]');
+    if (submitButton.disabled) return;
+    const error = form.querySelector("#programFormError");
+    error.classList.add("hidden");
+    const generateQuestions = form.querySelector("#pGenerateQuestions").checked;
+    const count = form.querySelector("#pQuestionCount").valueAsNumber || 15;
+    submitButton.disabled = true;
+
+    let programme;
     try {
       const res = await fetch(`${API}/training-programs`, {
         method: "POST", headers: jsonHeaders(),
@@ -516,14 +527,35 @@ document.getElementById("newProgramBtn").addEventListener("click", () => {
           name: document.getElementById("pName").value.trim(),
           practice_area: document.getElementById("pArea").value.trim(),
           description: document.getElementById("pDesc").value.trim(),
-          duration_days: parseInt(document.getElementById("pDuration").value),
-          passing_score: parseFloat(document.getElementById("pPass").value),
+          duration_days: form.querySelector("#pDuration").valueAsNumber,
+          passing_score: form.querySelector("#pPass").valueAsNumber,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Failed to create programme");
-      if(document.getElementById('pGenerateQuestions').checked){const count=Math.min(30,Math.max(5,parseInt(document.getElementById('pQuestionCount').value)||15));const generated=await fetch(`${API}/training-programs/${data.id}/generate-starter-questions?count=${count}`,{method:'POST',headers:authHeaders()}),result=await generated.json();if(!generated.ok)throw new Error(result.detail||'Programme created, but starter questions could not be generated');closeModal();showAlert(`Training programme created. ${result.created} starter questions are ready for review.`,'success');}else{closeModal();showAlert("Training programme created.","success");}programsCache=[];document.querySelectorAll('[data-ready="1"]').forEach(el=>delete el.dataset.ready);loadPrograms();
-    } catch (err) { showAlert(err.message, "error"); }
+      programme = await readExamResponse(res, "Could not create programme");
+    } catch (err) {
+      error.textContent = err.message;
+      error.classList.remove("hidden");
+      submitButton.disabled = false;
+      return;
+    }
+
+    if (form.isConnected) closeModal();
+    programsCache = [];
+    document.querySelectorAll('[data-ready="1"]').forEach(el => delete el.dataset.ready);
+    if (generateQuestions) {
+      try {
+        const response = await fetch(`${API}/training-programs/${programme.id}/generate-starter-questions?count=${count}`, {
+          method: "POST", headers: authHeaders(),
+        });
+        const result = await readExamResponse(response, "Could not generate starter questions");
+        showAlert(`Training programme created. ${esc(result.created)} starter questions are ready for review.`, "success");
+      } catch (err) {
+        showAlert(`Training programme created. Starter question generation failed. ${esc(err.message)}`, "warn");
+      }
+    } else {
+      showAlert("Training programme created.", "success");
+    }
+    loadPrograms();
   });
 });
 
