@@ -316,7 +316,8 @@ class ExamBase(ExamScheduleTimes):
     duration_minutes: int = Field(default=120, ge=15, le=300)
     passing_score: float = Field(default=70.0, ge=0, le=100)
     total_marks: float = Field(default=100.0, gt=0)
-    questions_per_exam: int = Field(default=50, ge=1, le=200)
+    questions_per_exam: int = Field(default=50, ge=1)
+    programme_wide: bool = False
     randomize_questions: bool = True
     randomize_options: bool = True
     allow_review: bool = False
@@ -327,19 +328,20 @@ class ExamBase(ExamScheduleTimes):
 
 
 class ExamCreate(ExamBase):
-    batch_id: int = Field(..., gt=0)
+    batch_id: Optional[int] = Field(default=None, gt=0)
     question_bank_ids: List[int]
     payment_required: bool = False
 
 
 class ExamUpdate(ExamScheduleTimes):
     batch_id: Optional[int] = Field(default=None, gt=0)
+    programme_wide: Optional[bool] = None
     title: Optional[str] = None
     description: Optional[str] = None
     duration_minutes: Optional[int] = None
     passing_score: Optional[float] = None
     total_marks: Optional[float] = None
-    questions_per_exam: Optional[int] = None
+    questions_per_exam: Optional[int] = Field(default=None, ge=1)
     randomize_questions: Optional[bool] = None
     randomize_options: Optional[bool] = None
     allow_review: Optional[bool] = None
@@ -440,6 +442,7 @@ class ExamCandidateRow(BaseModel):
 
 class ExamListResponse(BaseModel):
     assigned_candidates: int = 0
+    programme_wide: bool = False
     batch_id: Optional[int] = None
     batch_name: Optional[str] = None
     id: int

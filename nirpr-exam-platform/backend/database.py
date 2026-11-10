@@ -43,6 +43,11 @@ async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         # create_all does not add columns to an existing installation.
+        exam_columns = await conn.run_sync(lambda sync_conn: {
+            column["name"] for column in inspect(sync_conn).get_columns("exams")
+        })
+        if "programme_wide" not in exam_columns:
+            await conn.execute(text("ALTER TABLE exams ADD COLUMN programme_wide BOOLEAN NOT NULL DEFAULT FALSE"))
         columns = await conn.run_sync(lambda sync_conn: {
             column["name"] for column in inspect(sync_conn).get_columns("users")
         })

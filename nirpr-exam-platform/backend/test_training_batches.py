@@ -108,7 +108,11 @@ async def test_unassigned_legacy_exam_requires_batch_and_batch_cannot_change_aft
     # Use an awaitable notification stub for this update.
     from unittest.mock import AsyncMock
     monkeypatch.setattr(main,"notify_exam_schedule",AsyncMock())
+    await main.update_exam(exam.id, schemas.ExamUpdate(programme_wide=True), admin, db)
+    assert exam.programme_wide is True
+    assert candidate.id in await eligible_candidate_ids(db, exam)
     await main.update_exam(exam.id,schemas.ExamUpdate(batch_id=batch),admin,db)
+    assert exam.programme_wide is False
     assert candidate.id in await eligible_candidate_ids(db,exam)
     db.add(ExamAttempt(exam_id=exam.id,user_id=candidate.id))
     await db.commit()

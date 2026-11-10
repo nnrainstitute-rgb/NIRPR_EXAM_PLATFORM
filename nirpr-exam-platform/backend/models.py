@@ -10,7 +10,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.hybrid import hybrid_property
-from sqlalchemy import case, func
+from sqlalchemy import case, false, func
 from datetime import datetime
 import enum
 
@@ -196,6 +196,7 @@ class Exam(Base):
     passing_score = Column(Float, default=70.0)
     total_marks = Column(Float, default=100.0)
     questions_per_exam = Column(Integer, default=50)
+    programme_wide = Column(Boolean, nullable=False, default=False, server_default=false())
     randomize_questions = Column(Boolean, default=True)
     randomize_options = Column(Boolean, default=True)
     allow_review = Column(Boolean, default=False)

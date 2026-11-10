@@ -489,13 +489,13 @@ async function loadExams() {
   if (version !== examListVersion) return;
   examsCache = exams;
   if (!exams.length) {
-    list.innerHTML = `<div class="empty-state">No exams are available for your registration yet. If you expect to see a scheduled exam, ask the administrator to confirm your programme, training batch, and any renewal approval.</div>`;
+    list.innerHTML = `<div class="empty-state">No exams are available for your registration yet. If you expect to see a scheduled exam, ask the administrator to confirm your programme, any required batch assignment, and any renewal approval.</div>`;
     return;
   }
     list.innerHTML = exams.map(e => `
       <article class="exam-card">
         <div class="exam-copy">
-          <h3>${escapeHtml(e.title)}</h3><p class="muted">Training batch: ${escapeHtml(e.batch_name || 'Previous examination')}</p>
+          <h3>${escapeHtml(e.title)}</h3><p class="muted">${e.programme_wide ? "Whole programme" : `Training batch: ${escapeHtml(e.batch_name || "Previous examination")}`}</p>
           <div class="exam-meta">
             <span>${escapeHtml(e.training_program_name)}</span>
             <span>Pass mark: ${Number(e.passing_score).toFixed(0)}%</span>
@@ -524,7 +524,7 @@ async function loadExams() {
                 ? `<button class="btn small secondary" disabled title="Exam-taking is disabled while viewing as this candidate">${e.resumable ? 'Resume exam' : 'Start exam'}</button>`
                 : (e.can_start
                     ? `<button class="btn small" onclick="beginStart(${e.id})">${e.resumable ? 'Resume exam' : 'Start exam'}</button>`
-                    : `<button class="btn small secondary" disabled title="Payment receipt approval or administrative access is required">Awaiting payment approval</button>`))
+                    : `<button class="btn small secondary" disabled title="An approved payment receipt is required">Awaiting payment approval</button>`))
             : ''}
         </div>
       </article>
