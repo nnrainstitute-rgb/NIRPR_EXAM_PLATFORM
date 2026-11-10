@@ -1,6 +1,6 @@
 """Per-exam receipt gates use disposable databases only."""
 from datetime import datetime, timedelta
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 import pytest_asyncio
@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 import main
 import schemas
 from database import Base
-from models import User, UserRole, TrainingProgram, CandidateProfile, Exam, ExamStatus, ExamPolicy, PaymentReceipt, ExamAccessGrant, ExamAttempt, TrainingBatch, CandidateBatchAssignment, ExamBatchAssignment
+from models import User, UserRole, TrainingProgram, CandidateProfile, Exam, ExamStatus, ExamPolicy, PaymentReceipt, ExamAccessGrant, ExamAttempt, TrainingBatch, CandidateBatchAssignment, ExamBatchAssignment, QuestionBank, Question
 
 
 @pytest_asyncio.fixture
@@ -92,6 +92,40 @@ async def test_start_gate_matches_candidate_list(setup,monkeypatch,required,acce
             await main.start_exam(exam.id,request,candidate,db)
         assert error.value.status_code == 403
         engine_start.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("required", [False, True])
+async def test_scheduled_exam_receipt_switch_controls_real_start(setup, monkeypatch, required):
+    db, admin, candidate, exam, _ = setup
+    monkeypatch.setattr(main.email_utils, "send_exam_schedule_email", Mock())
+    bank = QuestionBank(training_program_id=exam.training_program_id, name="Scheduling bank", created_by=admin.id)
+    db.add(bank)
+    await db.flush()
+    db.add(Question(question_bank_id=bank.id, question_text="Sample question",
+                    options={"A": "Answer", "B": "Distractor"}, correct_answer=["A"]))
+    await db.commit()
+    batch = (await db.execute(select(ExamBatchAssignment).where(
+        ExamBatchAssignment.exam_id == exam.id))).scalar_one()
+    saved = await main.create_exam(schemas.ExamCreate(
+        training_program_id=exam.training_program_id, batch_id=batch.batch_id,
+        title="Scheduled receipt check", questions_per_exam=1, question_bank_ids=[bank.id],
+        start_time=exam.start_time, end_time=exam.end_time, payment_required=required,
+    ), admin, db)
+
+    row = next(row for row in await main.list_exams(None, candidate, db) if row.id == saved.id)
+    assert row.payment_required is required
+    assert row.can_start is not required
+    request = Request({"type": "http", "headers": [], "client": ("127.0.0.1", 1234)})
+    if required:
+        with pytest.raises(HTTPException) as error:
+            await main.start_exam(saved.id, request, candidate, db)
+        assert error.value.status_code == 403
+        await main.update_payment_requirement(
+            saved.id, schemas.ExamPaymentRequirement(payment_required=False), admin, db,
+        )
+    attempt = await main.start_exam(saved.id, request, candidate, db)
+    assert attempt.total_questions == 1
 
 
 @pytest.mark.asyncio

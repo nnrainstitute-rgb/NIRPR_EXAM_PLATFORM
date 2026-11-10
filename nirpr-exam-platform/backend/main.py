@@ -1244,11 +1244,13 @@ async def create_exam(
         TrainingBatch.training_program_id == data.training_program_id))).scalar_one_or_none()
     if batch is None:
         raise HTTPException(status_code=400, detail="Select a training batch belonging to this programme")
-    payload = data.model_dump(exclude={"question_bank_ids", "batch_id"})
+    payload = data.model_dump(exclude={"question_bank_ids", "batch_id", "payment_required"})
     exam = Exam(**payload, created_by=current_user.id, status=ExamStatus.SCHEDULED)
     db.add(exam)
     await db.flush()
     db.add(ExamBatchAssignment(exam_id=exam.id,batch_id=data.batch_id))
+    if data.payment_required:
+        db.add(ExamPolicy(exam_id=exam.id, payment_required=True))
     await db.commit()
     await db.refresh(exam)
     await notify_exam_schedule(db, exam)
@@ -1265,6 +1267,7 @@ async def list_exams(training_program_id: Optional[int] = None,
     candidate_approved_exam_ids = set()
     candidate_granted_exam_ids = set()
     candidate_started_exam_ids = set()
+    candidate_windows = {}
 
     if training_program_id:
         q = q.where(Exam.training_program_id == training_program_id)
@@ -1307,6 +1310,13 @@ async def list_exams(training_program_id: Optional[int] = None,
         candidate_started_exam_ids = set((await db.execute(
             select(ExamAttempt.exam_id).where(ExamAttempt.user_id == current_user.id)
         )).scalars().all())
+        candidate_windows = {
+            exam_id: (start, end)
+            for exam_id, start, end in (await db.execute(
+                select(ExamScheduleOverride.exam_id, ExamScheduleOverride.start_time, ExamScheduleOverride.end_time)
+                .where(ExamScheduleOverride.user_id == current_user.id)
+            )).all()
+        }
 
     result = await db.execute(q.order_by(Exam.start_time.desc()))
     rows = result.all()
@@ -1323,11 +1333,16 @@ async def list_exams(training_program_id: Optional[int] = None,
         reg = (await db.execute(
             select(func.count(ExamAttempt.id)).where(ExamAttempt.exam_id == exam.id)
         )).scalar()
+        override = candidate_windows.get(exam.id)
+        start_time, end_time = override or (exam.start_time, exam.end_time)
         display_status = exam.status
-        if exam.status == ExamStatus.SCHEDULED and exam.start_time <= now <= exam.end_time:
-            display_status = ExamStatus.ACTIVE
-        elif exam.status in (ExamStatus.SCHEDULED, ExamStatus.ACTIVE) and now > exam.end_time:
-            display_status = ExamStatus.COMPLETED
+        if override or exam.status in (ExamStatus.SCHEDULED, ExamStatus.ACTIVE):
+            if now < start_time:
+                display_status = ExamStatus.SCHEDULED
+            elif now <= end_time:
+                display_status = ExamStatus.ACTIVE
+            else:
+                display_status = ExamStatus.COMPLETED
         if (current_user.role == UserRole.CANDIDATE
                 and display_status == ExamStatus.COMPLETED
                 and exam.id not in candidate_completed_exam_ids):
@@ -1356,6 +1371,7 @@ async def list_exams(training_program_id: Optional[int] = None,
             training_program_id=exam.training_program_id,
             title=exam.title,
             training_program_name=program.name,
+            training_program_code=program.code,
             practice_area=program.practice_area,
             program_description=program.description,
             exam_description=exam.description,
@@ -1364,8 +1380,8 @@ async def list_exams(training_program_id: Optional[int] = None,
             passing_score=exam.passing_score,
             total_marks=exam.total_marks,
             max_attempts=exam.max_attempts,
-            start_time=exam.start_time,
-            end_time=exam.end_time,
+            start_time=start_time,
+            end_time=end_time,
             status=display_status,
             questions_per_exam=exam.questions_per_exam,
             registered_candidates=reg or 0,

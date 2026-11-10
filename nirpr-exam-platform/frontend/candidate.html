@@ -67,6 +67,7 @@
     <div class="card">
       <h2 class="mt-0">Your certification exams</h2>
       <p class="subtitle" id="programLine"></p>
+      <button type="button" class="btn small secondary" id="refreshExamsBtn">Refresh exams</button>
       <div id="examsList"><p class="muted">Loading...</p></div>
     </div>
   </div>
@@ -448,10 +449,22 @@ function escapeHtml(value) {
   })[ch]);
 }
 
+let examListVersion = 0;
 async function loadExams() {
-  const res = await fetch(`${API}/exams`, { headers: authHeaders() });
-  const exams = await res.json();
-  examsCache = exams;
+  const version = ++examListVersion;
+  const list = document.getElementById("examsList");
+  let exams;
+  try {
+    const res = await fetch(`${API}/exams`, { headers: authHeaders() });
+    if (!res.ok) throw new Error("Could not load exams");
+    exams = await res.json();
+    if (!Array.isArray(exams)) throw new Error("Could not load exams");
+  } catch {
+    if (version === examListVersion) {
+      list.innerHTML = '<div class="alert error">Could not load your exams. Use Refresh exams to try again.</div>';
+    }
+    return;
+  }
 
   // Merge in the candidate's active (in-progress) attempt, if any, so the
   // matching exam card can show real "answered / total" progress instead
@@ -473,9 +486,10 @@ async function loadExams() {
     }
   } catch (e) { /* non-fatal — progress just won't show */ }
 
-  const list = document.getElementById("examsList");
+  if (version !== examListVersion) return;
+  examsCache = exams;
   if (!exams.length) {
-    list.innerHTML = `<div class="empty-state">No exams have been scheduled for your training programme yet.</div>`;
+    list.innerHTML = `<div class="empty-state">No exams are available for your registration yet. If you expect to see a scheduled exam, ask the administrator to confirm your programme, training batch, and any renewal approval.</div>`;
     return;
   }
     list.innerHTML = exams.map(e => `
@@ -498,7 +512,9 @@ async function loadExams() {
             <span aria-hidden="true">&rarr;</span>
             ${new Date(e.end_time).toLocaleString()}
           </div>
-          ${e.status === 'active' && !e.can_start ? `<div class="alert warn" style="margin-top:12px">${escapeHtml(e.access_message || 'Payment approval is required before you can participate.')}</div>` : ''}
+          ${['scheduled', 'active'].includes(e.status) ? (e.can_start
+            ? `<p class="muted">${e.payment_required ? "Payment access cleared." : "No payment receipt required."}</p>`
+            : `<div class="alert warn" style="margin-top:12px">${escapeHtml(e.access_message || 'Payment approval is required before you can participate.')}</div>`) : ''}
           ${examCardProgress(e)}
         </div>
         <div class="exam-actions">
@@ -514,6 +530,12 @@ async function loadExams() {
       </article>
     `).join("");
 }
+
+document.getElementById("refreshExamsBtn").addEventListener("click", loadExams);
+window.addEventListener("focus", () => {
+  if (!document.getElementById("dashboardView").classList.contains("hidden")
+      && !document.getElementById("examsPane").classList.contains("hidden")) loadExams();
+});
 
 async function loadResults() {
   const res = await fetch(`${API}/candidate/results`, { headers: authHeaders() });

@@ -11,7 +11,8 @@ import schemas
 from exam_engine import ExamEngine
 from exam_eligibility import eligible_candidate_ids
 from models import (User, UserRole, CandidateProfile, ExamAttempt, AttemptStatus,
-                    ExamPolicy, ExamRenewalApproval, Notification, TrainingProgram, Exam, CandidateBatchAssignment, ExamBatchAssignment)
+                    ExamPolicy, ExamRenewalApproval, Notification, TrainingProgram, Exam, CandidateBatchAssignment,
+                    ExamBatchAssignment, ExamScheduleOverride)
 from test_payment_requirements import setup
 
 
@@ -109,7 +110,32 @@ async def test_cross_programme_not_eligible_or_invitable(setup):
     db.add(foreign_exam)
     await db.commit()
     assert candidate.id not in await eligible_candidate_ids(db,foreign_exam)
+    assert await main.list_exams(programme.id, candidate, db) == []
+    request = Request({"type": "http", "headers": [], "client": ("127.0.0.1", 1234)})
+    with pytest.raises(HTTPException) as error:
+        await main.start_exam(foreign_exam.id, request, candidate, db)
+    assert error.value.status_code == 403
     with pytest.raises(HTTPException) as error:
         await main.set_renewal_approval(foreign_exam.id,candidate.id,
             schemas.ExamRenewalApprovalUpdate(approved=True,reason="Should be blocked"),admin,db)
     assert error.value.status_code==404
+
+
+@pytest.mark.asyncio
+async def test_candidate_sees_own_rescheduled_window_after_original_ends(setup):
+    db, admin, candidate, exam, _ = setup
+    now = datetime.utcnow()
+    exam.start_time = now - timedelta(hours=3)
+    exam.end_time = now - timedelta(hours=2)
+    override_start, override_end = now - timedelta(minutes=1), now + timedelta(hours=2)
+    db.add(ExamScheduleOverride(exam_id=exam.id, user_id=candidate.id, created_by=admin.id,
+                                start_time=override_start, end_time=override_end))
+    await db.commit()
+
+    candidate_row = next(row for row in await main.list_exams(None, candidate, db) if row.id == exam.id)
+    admin_row = next(row for row in await main.list_exams(None, admin, db) if row.id == exam.id)
+    assert candidate_row.status.value == "active"
+    assert candidate_row.start_time == override_start
+    assert candidate_row.model_dump(mode="json")["start_time"].endswith("+00:00")
+    assert admin_row.status.value == "completed"
+    assert admin_row.end_time == exam.end_time

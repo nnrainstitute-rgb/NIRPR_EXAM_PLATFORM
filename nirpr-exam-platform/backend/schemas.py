@@ -2,7 +2,7 @@
 NIRPR RSO Examination Platform - Pydantic Schemas
 """
 
-from pydantic import BaseModel, Field, EmailStr, validator, field_validator
+from pydantic import BaseModel, Field, EmailStr, validator, field_validator, field_serializer
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone
 from enum import Enum
@@ -329,6 +329,7 @@ class ExamBase(ExamScheduleTimes):
 class ExamCreate(ExamBase):
     batch_id: int = Field(..., gt=0)
     question_bank_ids: List[int]
+    payment_required: bool = False
 
 
 class ExamUpdate(ExamScheduleTimes):
@@ -445,6 +446,7 @@ class ExamListResponse(BaseModel):
     training_program_id: int
     title: str
     training_program_name: str
+    training_program_code: str = ""
     practice_area: str
     program_description: Optional[str] = None
     exam_description: Optional[str] = None
@@ -462,6 +464,12 @@ class ExamListResponse(BaseModel):
     payment_required: bool = False
     access_status: Optional[str] = None
     access_message: Optional[str] = None
+
+    @field_serializer("start_time", "end_time", when_used="json")
+    def serialize_exam_time(self, value: datetime) -> str:
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.isoformat()
 
     class Config:
         from_attributes = True
