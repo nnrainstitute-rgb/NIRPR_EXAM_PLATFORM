@@ -273,7 +273,7 @@ function applyAdminAppearance(){const theme=localStorage.getItem('nirpr_admin_th
 applyAdminAppearance();
 document.getElementById('displaySettingsBtn').onclick=()=>{const theme=localStorage.getItem('nirpr_admin_theme')||'light',accent=localStorage.getItem('nirpr_admin_accent')||'green',scale=localStorage.getItem('nirpr_admin_scale')||'1';openModal(`<div class="modal-hero"><h2 class="mt-0">Customize administration panel</h2><p class="subtitle">Your display choices are saved on this device.</p></div><form id="appearanceForm"><label>Theme</label><select id="adminTheme"><option value="light">Light theme</option><option value="dark">Dark theme</option></select><label>Interface colour</label><select id="adminAccent"><option value="green">NIRPR green</option><option value="blue">Blue</option><option value="purple">Purple</option><option value="orange">Orange</option></select><label>Text size: <strong id="adminScaleLabel">${Math.round(Number(scale)*100)}%</strong></label><input id="adminScale" type="range" min="0.85" max="1.3" step="0.05" value="${scale}"><div class="row modal-actions"><button class="btn block">Apply appearance</button><button type="button" class="btn secondary block" onclick="closeModal()">Cancel</button></div></form>`);document.getElementById('adminTheme').value=theme;document.getElementById('adminAccent').value=accent;document.getElementById('adminScale').oninput=e=>{document.getElementById('adminScaleLabel').textContent=`${Math.round(e.target.value*100)}%`;document.getElementById('app').style.zoom=e.target.value;};document.getElementById('appearanceForm').onsubmit=e=>{e.preventDefault();localStorage.setItem('nirpr_admin_theme',document.getElementById('adminTheme').value);localStorage.setItem('nirpr_admin_accent',document.getElementById('adminAccent').value);localStorage.setItem('nirpr_admin_scale',document.getElementById('adminScale').value);applyAdminAppearance();closeModal();};};
 
-async function ensureProgrammeFilters(){if(!programsCache.length){const res=await fetch(`${API}/training-programs`,{headers:authHeaders()});programsCache=await res.json();}['dashboardProgramFilter','examProgramFilter','approvalProgramFilter','monitorProgramFilter','paymentProgramFilter','accessProgramFilter','signatureProgram','userProgramFilter','auditProgramFilter'].forEach(id=>{const el=document.getElementById(id);if(!el||el.dataset.ready)return;const first=el.options[0]?.outerHTML||'<option value="">All training programmes</option>';el.innerHTML=first+programsCache.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('');el.dataset.ready='1';});}
+async function ensureProgrammeFilters(){if(!programsCache.length){const res=await fetch(`${API}/training-programs`,{headers:authHeaders()});programsCache=await res.json();}['dashboardProgramFilter','examProgramFilter','approvalProgramFilter','monitorProgramFilter','paymentProgramFilter','accessProgramFilter','signatureProgram','userProgramFilter','auditProgramFilter'].forEach(id=>{const el=document.getElementById(id);if(!el||el.dataset.ready)return;const first=el.options[0]?.outerHTML||'<option value="">All training programmes</option>';el.innerHTML=first+programsCache.map(p=>`<option value="${p.id}">${esc(p.name)}${id === "examProgramFilter" && p.code ? ` (${esc(p.code)})` : ""}</option>`).join('');el.dataset.ready='1';});}
 
 document.querySelectorAll('#governanceTabs button').forEach(btn=>btn.onclick=()=>{document.querySelectorAll('#governanceTabs button').forEach(b=>b.classList.toggle('active',b===btn));document.querySelectorAll('.governance-pane').forEach(p=>p.classList.toggle('hidden',p.dataset.pane!==btn.dataset.pane));});
 document.querySelectorAll('.nav-menu-trigger').forEach(trigger=>trigger.addEventListener('click',e=>{e.stopPropagation();const menu=trigger.closest('.nav-menu'),willOpen=!menu.classList.contains('open');document.querySelectorAll('.nav-menu.open').forEach(m=>{m.classList.remove('open');m.querySelector('.nav-menu-trigger')?.setAttribute('aria-expanded','false');});menu.classList.toggle('open',willOpen);trigger.setAttribute('aria-expanded',String(willOpen));}));
@@ -939,25 +939,35 @@ window.openBulkUpload = function (bankId) {
 
 // ---- Exams ----
 let examsCache = [];
+let examsLoadVersion = 0;
 async function loadExams() {
-  await ensureProgrammeFilters();
-  const pid=document.getElementById('examProgramFilter').value;
-  const res = await fetch(`${API}/exams${pid?`?training_program_id=${encodeURIComponent(pid)}`:''}`, { headers: authHeaders() });
-  const data=await res.json();
-  if(!res.ok){showAlert(data.detail||'Could not filter examinations.','error');return;}
-  examsCache = data;
+  const version = ++examsLoadVersion;
+  let pid, selectedName, visibleExams;
+  try {
+    await ensureProgrammeFilters();
+    const filter = document.getElementById("examProgramFilter");
+    pid = filter.value;
+    selectedName = filter.selectedOptions[0]?.textContent || "";
+    const response = await fetch(`${API}/exams${pid ? `?training_program_id=${encodeURIComponent(pid)}` : ""}`, { headers: authHeaders() });
+    visibleExams = await readExamResponse(response, "Could not load examinations");
+    if (!Array.isArray(visibleExams)) throw new Error("Could not load examinations");
+  } catch (error) {
+    if (version === examsLoadVersion) showAlert(esc(error.message), "error");
+    return;
+  }
+  if (version !== examsLoadVersion) return;
+  if (pid) visibleExams = visibleExams.filter(exam => String(exam.training_program_id) === pid);
+  examsCache = visibleExams;
   const list = document.getElementById("examsList");
-  const filter=document.getElementById('examProgramFilter'),selectedName=filter.selectedIndex>=0?filter.options[filter.selectedIndex].text:'';
-  const visibleExams=pid?examsCache.filter(e=>String(e.training_program_id||'')===pid||e.training_program_name===selectedName):examsCache;
   document.getElementById('examFilterSummary').textContent=pid?`${visibleExams.length} examination(s) found for ${selectedName}.`:`Showing all ${visibleExams.length} examination(s).`;
   if (!visibleExams.length) { list.innerHTML = `<div class="empty-state">No examinations or schedules are assigned to <strong>${esc(selectedName)}</strong>.</div>`; return; }
   const badge = { draft: 'gray', scheduled: 'blue', active: 'green', completed: 'gray', archived: 'gray' };
   list.innerHTML = `<table><thead><tr><th>Examination title</th><th>Training programme</th><th>Candidate access window</th><th>Batch candidates / attempts</th><th>Delivery status</th><th>Exam management actions</th></tr></thead><tbody>
     ${visibleExams.map(e => `<tr>
-      <td>${esc(e.title)}<div class="muted">Batch: ${esc(e.batch_name || 'Unassigned — edit exam')}</div></td><td>${esc(e.training_program_name)}</td>
+      <td>${esc(e.title)}<div class="muted">Batch: ${esc(e.batch_name || 'Unassigned — edit exam')}</div></td><td>${esc(e.training_program_name)}${e.training_program_code ? `<div class="muted">${esc(e.training_program_code)}</div>` : ""}</td>
       <td style="font-size:12px;">${new Date(e.start_time).toLocaleString()} &rarr; ${new Date(e.end_time).toLocaleString()}</td>
-      <td>${e.assigned_candidates ?? 0} assigned<div class="muted">${e.registered_candidates} attempt(s)</div></td>
-      <td><span class="badge ${badge[e.status] || 'gray'}">${e.status}</span></td>
+      <td>${e.assigned_candidates ?? 0} assigned<div class="muted">${e.registered_candidates} attempt(s)</div>${e.batch_id && !e.assigned_candidates && ['admin','super_admin'].includes(role) ? `<button class="btn small secondary" onclick="openBatchManager(${e.training_program_id}, ${e.batch_id})">Assign batch candidates</button>` : ""}</td>
+      <td><span class="badge ${badge[e.status] || 'gray'}">${e.status}</span><div class="muted">${e.payment_required ? "Approved receipt required" : "Receipt optional"}</div></td>
       <td class="row" style="gap:6px;">
         ${e.status === 'scheduled' ? `<button class="btn small" onclick="setExamStatus(${e.id}, 'active')">Open exam to candidates</button>` : ''}
         ${e.status === 'active' ? `<button class="btn small secondary" onclick="setExamStatus(${e.id}, 'completed')">Close exam access</button>` : ''}
@@ -973,7 +983,7 @@ document.getElementById('applyExamFilter').addEventListener('click',loadExams);
 document.getElementById('examProgramFilter').addEventListener('change',loadExams);
 document.getElementById('clearExamFilter').addEventListener('click',()=>{document.getElementById('examProgramFilter').value='';loadExams();});
 
-window.openBatchManager = async function(programmeId) {
+window.openBatchManager = async function(programmeId, batchId) {
   await ensureProgrammeFilters();
   const programme=String(programmeId || programsCache[0]?.id || '');
   openModal(`<h2 class="mt-0">Training batches</h2><p>Assign or reassign candidates to a batch. Returning candidates also need renewal approval in the exam’s Candidates panel.</p><div id="batchError" class="alert error hidden" role="alert"></div><label>Training programme</label><select id="batchProgramme">${programsCache.map(p=>`<option value="${p.id}" ${String(p.id)===programme?'selected':''}>${esc(p.name)}</option>`).join('')}</select><form id="batchCreateForm"><label>New batch name</label><div class="row"><input id="batchName" required minlength="2" maxlength="150" placeholder="e.g. October 2026 cohort"><button class="btn" ${['admin','super_admin'].includes(role)?'':'disabled'}>Create batch</button></div></form><label>Assign selected candidates to</label><div class="row"><select id="batchTarget" required></select><button type="button" class="btn" id="assignBatchBtn" ${['admin','super_admin'].includes(role)?'':'disabled'}>Assign / reassign selected</button></div><button type="button" class="btn secondary" id="importBatchFileBtn" ${['admin','super_admin'].includes(role)?'':'disabled'}>Import candidate file (CSV / Excel)</button><label>Search candidates</label><input id="batchCandidateSearch" type="search" placeholder="Name or email"><div id="batchCandidates" style="max-height:40vh;overflow:auto"></div><button class="btn secondary" type="button" onclick="closeModal()">Close</button>`);
@@ -989,7 +999,10 @@ window.openBatchManager = async function(programmeId) {
       const [br,cr]=await Promise.all([fetch(`${API}/admin/training-batches?training_program_id=${pid}`,{headers:authHeaders()}),fetch(`${API}/admin/training-batches/candidates?training_program_id=${pid}`,{headers:authHeaders()})]);
       const batches=await readExamResponse(br,'Could not load batches');
       candidates=await readExamResponse(cr,'Could not load candidates');
-      document.getElementById('batchTarget').innerHTML='<option value="">Select a batch</option>'+batches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('');
+      const target = document.getElementById("batchTarget");
+      const selected = target.value;
+      target.innerHTML='<option value="">Select a batch</option>'+batches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('');
+      if (batches.some(batch => String(batch.id) === selected)) target.value = selected;
       render();
     } catch(error) { showError(error); }
   };
@@ -1018,10 +1031,14 @@ window.openBatchManager = async function(programmeId) {
     try {
       await readExamResponse(await fetch(`${API}/admin/training-batches/assignments`,{method:'PUT',headers:jsonHeaders(),body:JSON.stringify({batch_id:batch,user_ids:ids})}),'Could not assign candidates');
       await reload();
+      if (!document.getElementById("view-exams").classList.contains("hidden")) loadExams();
     } catch(error) { showError(error); }
     finally { button.disabled=false; }
   };
   await reload();
+  if (batchId && document.getElementById("batchTarget")?.querySelector(`option[value="${batchId}"]`)) {
+    document.getElementById("batchTarget").value = String(batchId);
+  }
 };
 
 window.editExam = async function (examId) {
@@ -1039,6 +1056,7 @@ window.editExam = async function (examId) {
   const hasRegistrations = e.registered_candidates > 0;
   openModal(`
     <h2 class="mt-0">Edit exam</h2>
+    <p class="subtitle">Training programme: ${esc(e.training_program_name)}${e.training_program_code ? ` (${esc(e.training_program_code)})` : ""}</p>
     ${hasRegistrations ? `<div class="alert warn">This exam already has ${e.registered_candidates} candidate attempt(s). Question-selection settings (questions per candidate, randomization) are locked to keep existing attempts consistent — you can still edit timing, marks, and instructions.</div>` : ''}
     <form id="examEditForm">
       <label>Training batch</label><select id="eeBatch" ${hasRegistrations?'disabled':'required'}><option value="">Select batch</option>${batches.map(b=>`<option value="${b.id}" ${b.id===e.batch_id?'selected':''}>${esc(b.name)}</option>`).join('')}</select>
@@ -1314,7 +1332,7 @@ document.getElementById("newExamBtn").addEventListener("click", async () => {
     <form id="examForm">
       <div id="examFormError" class="alert error hidden" role="alert"></div>
       <label for="eProgram">Training programme</label>
-      <select id="eProgram" required>${programmes.map(p => `<option value="${p.id}" ${p.id === selectedProgramme ? "selected" : ""}>${esc(p.name)}</option>`).join("")}</select>
+      <select id="eProgram" required>${programmes.map(p => `<option value="${p.id}" ${p.id === selectedProgramme ? "selected" : ""}>${esc(p.name)} (${esc(p.code)})</option>`).join("")}</select>
       <label for="eBatch">Training batch</label>
       <select id="eBatch" required disabled aria-describedby="eBatchStatus"><option value="">Loading training batches…</option></select>
       <small id="eBatchStatus" class="muted" role="status"></small>
@@ -1338,6 +1356,8 @@ document.getElementById("newExamBtn").addEventListener("click", async () => {
         <div><label>End time</label><input type="datetime-local" id="eEnd" value="${end}" required /></div>
       </div>
       <label>Passing score (%)</label><input type="number" id="ePass" value="70" min="0" max="100" step="any" required />
+      <label class="row"><input type="checkbox" id="eReceiptRequired" style="width:auto"> Require an approved payment receipt</label>
+      <small class="muted">Leave unchecked to let eligible candidates start without uploading a receipt.</small>
       <div class="row" style="margin-top:20px;">
         <button type="button" class="btn secondary block" onclick="closeModal()">Cancel</button>
         <button type="button" id="eRetry" class="btn secondary hidden">Retry loading</button>
@@ -1513,13 +1533,23 @@ document.getElementById("newExamBtn").addEventListener("click", async () => {
           questions_per_exam: questions.valueAsNumber,
           total_marks: field("eMarks").valueAsNumber,
           passing_score: field("ePass").valueAsNumber,
+          payment_required: field("eReceiptRequired").checked,
           start_time: startTime.toISOString(),
           end_time: endTime.toISOString(),
           randomize_questions: true, randomize_options: true,
           question_bank_ids: bankIds,
         }),
       });
-      await readExamResponse(res, "Failed to schedule exam");
+      const saved = await readExamResponse(res, "Failed to schedule exam");
+      const filter = document.getElementById("examProgramFilter");
+      const scheduledProgramme = programmes.find(p => p.id === saved.training_program_id);
+      if (scheduledProgramme) {
+        const value = String(scheduledProgramme.id);
+        if (!Array.from(filter.options).some(option => option.value === value)) {
+          filter.add(new Option(`${scheduledProgramme.name} (${scheduledProgramme.code})`, value));
+        }
+        filter.value = value;
+      }
       if (form.isConnected) closeModal();
       showAlert("Exam scheduled.", "success");
       loadExams();
@@ -2105,10 +2135,22 @@ window.setExamPaymentRequirement = async function(examId, input) {
     const response = await fetch(`${API}/exams/${examId}/payment-requirement`, {
       method:'PATCH', headers:jsonHeaders(), body:JSON.stringify({payment_required:required})
     });
-    await readExamResponse(response, 'Could not save receipt requirement');
-    showAlert(required ? 'Approved receipt is now required for this exam.' : 'Receipt is no longer required for this exam.', 'success');
+    const saved = await readExamResponse(response, 'Could not save receipt requirement');
+    input.checked = saved.payment_required;
+    input.nextElementSibling.textContent = saved.payment_required ? "On — required" : "Off — not required";
+    showAlert(saved.payment_required ? 'Approved receipt is now required for this exam.' : 'Receipt is no longer required for this exam.', 'success');
+  } catch (error) {
+    input.checked = !required;
+    showAlert(esc(error.message), 'error');
+    return;
+  } finally {
+    input.disabled = false;
+  }
+  try {
     await loadGovernance();
-  } catch (error) { input.checked = !required; input.disabled = false; showAlert(error.message, 'error'); }
+  } catch {
+    showAlert("Receipt setting saved. Refresh Governance to update the candidate access list.", "warn");
+  }
 };
 async function loadGovernance(){
   await ensureProgrammeFilters();
