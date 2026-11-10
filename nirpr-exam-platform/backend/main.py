@@ -1214,6 +1214,9 @@ async def create_exam(
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    if data.end_time <= data.start_time:
+        raise HTTPException(status_code=400, detail="End time must be after start time")
+
     result = await db.execute(select(TrainingProgram).where(TrainingProgram.id == data.training_program_id))
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Training program not found")

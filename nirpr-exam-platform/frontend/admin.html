@@ -1292,25 +1292,45 @@ window.setExamStatus = async function (examId, status) {
 };
 
 document.getElementById("newExamBtn").addEventListener("click", async () => {
-  if (!programsCache.length) {
+  let programmes;
+  try {
     const res = await fetch(`${API}/training-programs`, { headers: authHeaders() });
-    programsCache = await res.json();
+    programmes = await readExamResponse(res, "Could not load training programmes");
+    if (!Array.isArray(programmes)) throw new Error("Could not load training programmes. Please try again.");
+  } catch (error) {
+    showAlert(esc(error.message), "error");
+    return;
+  }
+  if (!programmes.length) {
+    showAlert("Create an active training programme before scheduling an exam.", "warn");
+    return;
   }
   const now = new Date();
   const start = localDateTimeInput(new Date(now.getTime() + 5 * 60000));
   const end = localDateTimeInput(new Date(now.getTime() + 3 * 3600000));
+  const selectedProgramme = Number(document.getElementById("examProgramFilter").value);
   openModal(`
     <h2 class="mt-0">Schedule exam</h2>
     <form id="examForm">
       <div id="examFormError" class="alert error hidden" role="alert"></div>
-      <label>Training programme</label>
-      <select id="eProgram" required>${programsCache.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join("")}</select>
-      <label>Training batch</label><select id="eBatch" required><option value="">Select batch</option></select><small class="muted">Only eligible members of this batch receive the examination. Create and assign batches using Training batches.</small>
+      <label for="eProgram">Training programme</label>
+      <select id="eProgram" required>${programmes.map(p => `<option value="${p.id}" ${p.id === selectedProgramme ? "selected" : ""}>${esc(p.name)}</option>`).join("")}</select>
+      <label for="eBatch">Training batch</label>
+      <select id="eBatch" required disabled aria-describedby="eBatchStatus"><option value="">Loading training batches…</option></select>
+      <small id="eBatchStatus" class="muted" role="status"></small>
+      <details id="eCreateBatch" class="hidden">
+        <summary>Create a training batch</summary>
+        <label for="eBatchName">New batch name</label>
+        <div class="row">
+          <input id="eBatchName" maxlength="150" placeholder="e.g. November 2026 cohort" />
+          <button type="button" class="btn secondary" id="eAddBatch">Create batch</button>
+        </div>
+      </details>
       <label>Exam title</label><input id="eTitle" required minlength="5" maxlength="200" placeholder="e.g. RSO Certification - July 2026" />
       <label>Instructions (shown to candidates)</label><textarea id="eInstr"></textarea>
       <div class="grid cols-3">
         <div><label>Duration (min)</label><input type="number" id="eDuration" value="120" min="15" max="300" required /></div>
-        <div><label>Questions per candidate</label><input type="number" id="eQCount" value="50" min="1" max="200" required /></div>
+        <div><label for="eQCount">Questions per candidate</label><input type="number" id="eQCount" value="50" min="1" max="200" required aria-describedby="eQuestionStatus" /><small id="eQuestionStatus" class="muted" role="status"></small></div>
         <div><label>Total marks</label><input type="number" id="eMarks" value="100" min="0.01" step="any" required /></div>
       </div>
       <div class="grid cols-2">
@@ -1320,62 +1340,166 @@ document.getElementById("newExamBtn").addEventListener("click", async () => {
       <label>Passing score (%)</label><input type="number" id="ePass" value="70" min="0" max="100" step="any" required />
       <div class="row" style="margin-top:20px;">
         <button type="button" class="btn secondary block" onclick="closeModal()">Cancel</button>
-        <button type="submit" class="btn block">Schedule</button>
+        <button type="button" id="eRetry" class="btn secondary hidden">Retry loading</button>
+        <button type="submit" class="btn block" disabled>Schedule</button>
       </div>
     </form>
   `);
-  const refreshExamBatches = async () => {
-    const select=document.getElementById('eBatch');
-    select.disabled=true;
-    try {
-      const batches=await readExamResponse(await fetch(`${API}/admin/training-batches?training_program_id=${document.getElementById('eProgram').value}`,{headers:authHeaders()}),'Could not load training batches');
-      select.innerHTML='<option value="">Select batch</option>'+batches.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('');
-      if(!batches.length) select.innerHTML='<option value="">Create a training batch first</option>';
-    } catch(error) { const box=document.getElementById('examFormError');box.textContent=error.message;box.classList.remove('hidden'); }
-    finally { select.disabled=false; }
+  const form = document.getElementById("examForm");
+  const field = id => form.querySelector(`#${id}`);
+  const programme = field("eProgram");
+  const batch = field("eBatch");
+  const batchStatus = field("eBatchStatus");
+  const batchCreator = field("eCreateBatch");
+  const batchName = field("eBatchName");
+  const addBatch = field("eAddBatch");
+  const questions = field("eQCount");
+  const questionStatus = field("eQuestionStatus");
+  const formError = field("examFormError");
+  const retry = field("eRetry");
+  const schedule = form.querySelector('button[type="submit"]');
+  const canCreateBatch = ["admin", "super_admin"].includes(role);
+  let bankIds = [];
+  let available = 0;
+  let loadVersion = 0;
+  const showError = message => {
+    formError.textContent = message;
+    formError.classList.remove("hidden");
   };
-  document.getElementById('eProgram').addEventListener('change',refreshExamBatches);
-  await refreshExamBatches();
-  document.getElementById("examForm").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const formError = document.getElementById("examFormError");
+  const loadOptions = async (path, label) => {
+    const response = await fetch(path, { headers: authHeaders() });
+    const options = await readExamResponse(response, `Could not load ${label}`);
+    if (!Array.isArray(options)) throw new Error(`Could not load ${label}. Please try again.`);
+    return options;
+  };
+  const refreshProgramme = async (selectedBatch = "") => {
+    const version = ++loadVersion;
+    const query = `?training_program_id=${encodeURIComponent(programme.value)}`;
+    formError.classList.add("hidden");
+    retry.classList.add("hidden");
+    batchCreator.classList.add("hidden");
+    batch.disabled = true;
+    schedule.disabled = true;
+    batch.innerHTML = '<option value="">Loading training batches…</option>';
+    batchStatus.textContent = "";
+    questionStatus.textContent = "Checking active questions…";
+    const [batches, banks] = await Promise.allSettled([
+      loadOptions(`${API}/admin/training-batches${query}`, "training batches"),
+      loadOptions(`${API}/question-banks${query}`, "question banks"),
+    ]);
+    if (version !== loadVersion || !form.isConnected) return;
+
+    if (batches.status === "fulfilled") {
+      const options = batches.value;
+      batch.innerHTML = options.length
+        ? '<option value="">Select a training batch</option>' +
+          options.map(option => `<option value="${option.id}">${esc(option.name)}</option>`).join("")
+        : '<option value="">No training batches yet</option>';
+      batch.disabled = !options.length;
+      if (selectedBatch) batch.value = selectedBatch;
+      batchCreator.classList.toggle("hidden", !canCreateBatch);
+      batchStatus.textContent = options.length
+        ? "Only eligible members of the selected batch receive the exam. Assign candidates from Training batches."
+        : "Create a batch for this programme, then assign its candidates from Training batches.";
+    } else {
+      batch.innerHTML = '<option value="">Training batches unavailable</option>';
+      batchStatus.textContent = batches.reason.message;
+    }
+    if (banks.status === "fulfilled") {
+      bankIds = banks.value.map(bank => bank.id);
+      available = banks.value.reduce((total, bank) => total + bank.question_count, 0);
+      questions.max = Math.min(200, Math.max(1, available));
+      questionStatus.textContent = available
+        ? `${available} active questions available. Enter up to ${questions.max} per candidate.`
+        : "Add active questions to this programme before scheduling.";
+    } else {
+      questionStatus.textContent = banks.reason.message;
+    }
+    const loaded = batches.status === "fulfilled" && banks.status === "fulfilled";
+    retry.classList.toggle("hidden", loaded);
+    schedule.disabled = !loaded || batch.disabled || !available;
+  };
+
+  programme.addEventListener("change", () => {
+    batchName.value = "";
+    batchCreator.open = false;
+    refreshProgramme();
+  });
+  retry.addEventListener("click", () => refreshProgramme(batch.value));
+  addBatch.addEventListener("click", async () => {
+    const name = batchName.value.trim();
+    if (name.length < 2) {
+      showError("Enter a batch name of at least two characters.");
+      batchName.focus();
+      return;
+    }
+    const wasScheduleDisabled = schedule.disabled;
+    programme.disabled = addBatch.disabled = schedule.disabled = retry.disabled = true;
     formError.classList.add("hidden");
     try {
-      const title = document.getElementById("eTitle").value.trim();
+      const response = await fetch(`${API}/admin/training-batches`, {
+        method: "POST", headers: jsonHeaders(),
+        body: JSON.stringify({ training_program_id: Number(programme.value), name }),
+      });
+      const created = await readExamResponse(response, "Could not create training batch");
+      if (!form.isConnected) return;
+      batchName.value = "";
+      batchCreator.open = false;
+      await refreshProgramme(String(created.id));
+    } catch (error) {
+      schedule.disabled = wasScheduleDisabled;
+      showError(error.message);
+    } finally {
+      programme.disabled = addBatch.disabled = retry.disabled = false;
+    }
+  });
+  batchName.addEventListener("keydown", event => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    addBatch.click();
+  });
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (schedule.disabled || e.target !== form) return;
+    formError.classList.add("hidden");
+    programme.disabled = batch.disabled = addBatch.disabled = schedule.disabled = true;
+    try {
+      const title = field("eTitle").value.trim();
       if (title.length < 5) throw new Error("Exam title must contain at least 5 characters.");
-      const startTime = new Date(document.getElementById("eStart").value);
-      const endTime = new Date(document.getElementById("eEnd").value);
+      const startTime = new Date(field("eStart").value);
+      const endTime = new Date(field("eEnd").value);
       if (!Number.isFinite(startTime.getTime()) || !Number.isFinite(endTime.getTime()))
         throw new Error("Enter valid start and end times.");
       if (endTime <= startTime) throw new Error("End time must be after start time.");
-      const progId = parseInt(document.getElementById("eProgram").value);
-      const banksRes = await fetch(`${API}/question-banks?training_program_id=${progId}`, { headers: authHeaders() });
-      const banks = await readExamResponse(banksRes, "Could not load question banks");
-      if (!Array.isArray(banks)) throw new Error("Could not load question banks. Please reload and try again.");
+      const batchId = Number(batch.value);
+      if (!batchId) throw new Error("Select a training batch.");
       const res = await fetch(`${API}/exams`, {
         method: "POST", headers: jsonHeaders(),
         body: JSON.stringify({
-          training_program_id: progId,
-          batch_id: Number(document.getElementById('eBatch').value),
-          title: document.getElementById("eTitle").value.trim(),
-          instructions: document.getElementById("eInstr").value.trim(),
-          duration_minutes: parseInt(document.getElementById("eDuration").value),
-          questions_per_exam: parseInt(document.getElementById("eQCount").value),
-          total_marks: parseFloat(document.getElementById("eMarks").value),
-          passing_score: parseFloat(document.getElementById("ePass").value),
-          start_time: new Date(document.getElementById("eStart").value).toISOString(),
-          end_time: new Date(document.getElementById("eEnd").value).toISOString(),
+          training_program_id: Number(programme.value),
+          batch_id: batchId,
+          title,
+          instructions: field("eInstr").value.trim(),
+          duration_minutes: field("eDuration").valueAsNumber,
+          questions_per_exam: questions.valueAsNumber,
+          total_marks: field("eMarks").valueAsNumber,
+          passing_score: field("ePass").valueAsNumber,
+          start_time: startTime.toISOString(),
+          end_time: endTime.toISOString(),
           randomize_questions: true, randomize_options: true,
-          question_bank_ids: banks.map(b => b.id),
+          question_bank_ids: bankIds,
         }),
       });
       await readExamResponse(res, "Failed to schedule exam");
-      closeModal(); showAlert("Exam scheduled.", "success"); loadExams();
+      if (form.isConnected) closeModal();
+      showAlert("Exam scheduled.", "success");
+      loadExams();
     } catch (err) {
-      formError.textContent = err.message;
-      formError.classList.remove("hidden");
+      programme.disabled = batch.disabled = addBatch.disabled = schedule.disabled = false;
+      showError(err.message);
     }
   });
+  refreshProgramme();
 });
 
 // ---- Approvals ----
