@@ -1,5 +1,5 @@
 // Shared initialization for the v2 checkbox. Configuration errors stay visible.
-window.nirprRenderRecaptcha = async function () {
+window.nirprRenderRecaptcha = async function (callbacks = {}) {
   const container = document.getElementById('recaptchaWidget');
   try {
     const response = await fetch('/api/auth/recaptcha-config');
@@ -9,7 +9,7 @@ window.nirprRenderRecaptcha = async function () {
     }
     for (let attempt = 0; attempt < 100; attempt++) {
       if (window.grecaptcha?.render) {
-        return grecaptcha.render(container, {sitekey: config.site_key, theme: 'light'});
+        return grecaptcha.render(container, {sitekey: config.site_key, theme: 'light', ...callbacks});
       }
       await new Promise(resolve => setTimeout(resolve, 100));
     }
