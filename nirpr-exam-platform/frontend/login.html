@@ -6,8 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>NIRPR RSO Examination Portal</title>
 <link rel="stylesheet" href="/static/css/style.css" />
-<script src="https://www.google.com/recaptcha/api.js?render=explicit" async defer></script>
-<script src="/static/js/recaptcha.js"></script></head>
+</head>
 <body>
 
 <div class="topbar">
@@ -34,8 +33,6 @@
         <input type="password" id="loginPassword" required autocomplete="current-password" />
         <button type="button" class="password-toggle" data-password-target="loginPassword" aria-label="Show password" aria-pressed="false"></button>
       </div>
-      <label>Human verification</label><div id="recaptchaWidget"></div>
-      <div id="recaptchaStatus" role="status">Loading human verification…</div>
       <div class="row between" style="margin-top:8px;">
         <a href="/forgot-password" style="font-size:12.5px;">Forgot password?</a>
       </div>
@@ -90,37 +87,9 @@ const existingRole = localStorage.getItem("nirpr_role");
 if (existingToken && existingRole) location.href = localStorage.getItem("nirpr_must_change_password") === "true" ? "/change-password" : (existingRole === "candidate" ? "/candidate" : "/admin");
 
 let lastAttemptedEmail = "";
-let recaptchaWidgetId = null;
-const recaptchaStatus = document.getElementById("recaptchaStatus");
-async function renderRecaptcha() {
-  recaptchaWidgetId = await window.nirprRenderRecaptcha({
-    callback: () => { recaptchaStatus.textContent = ""; },
-    "expired-callback": () => {
-      recaptchaStatus.textContent = "Verification expired. Complete the checkbox again, then log in.";
-    },
-    "error-callback": () => {
-      recaptchaStatus.textContent = "Verification lost its connection. Check your internet connection and try the checkbox again, or reload this page.";
-    },
-  });
-  if (recaptchaStatus.textContent === "Loading human verification…") {
-    recaptchaStatus.textContent = recaptchaWidgetId === null
-      ? "Reload this page to try again. If verification still cannot load, contact the administrator."
-      : "";
-  }
-}
-renderRecaptcha();
-
 document.getElementById("loginForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   clearAlert();
-  if (recaptchaWidgetId === null) return;
-  const recaptchaToken = grecaptcha.getResponse(recaptchaWidgetId);
-  if (!recaptchaToken) {
-    if (!recaptchaStatus.textContent) {
-      recaptchaStatus.textContent = "Complete the human verification checkbox before logging in.";
-    }
-    return;
-  }
   const btn = document.getElementById("loginBtn");
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Logging in...';
   lastAttemptedEmail = document.getElementById("loginEmail").value.trim();
@@ -132,7 +101,6 @@ document.getElementById("loginForm").addEventListener("submit", async (e) => {
         email: lastAttemptedEmail,
         password: document.getElementById("loginPassword").value,
         portal: "candidate",
-        recaptcha_token: recaptchaToken,
       }),
     });
     const data = await res.json();
@@ -144,7 +112,6 @@ document.getElementById("loginForm").addEventListener("submit", async (e) => {
   } catch (err) {
     showAlert(err.message, "error");
   } finally {
-    if(recaptchaWidgetId !== null) grecaptcha.reset(recaptchaWidgetId);
     btn.disabled = false; btn.textContent = "Log In";
   }
 });

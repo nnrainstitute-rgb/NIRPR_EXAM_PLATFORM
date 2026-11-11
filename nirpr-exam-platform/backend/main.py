@@ -11,7 +11,7 @@ load_dotenv()  # must run before database.py / auth.py / email_utils.py read env
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 
-from fastapi import FastAPI, Depends, HTTPException, status, Request, UploadFile, File, Query, Form
+from fastapi import BackgroundTasks, FastAPI, Depends, HTTPException, status, Request, UploadFile, File, Query, Form
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -267,8 +267,6 @@ async def health():
 # ---------------------------------------------------------------------------
 @app.post("/api/auth/register", response_model=schemas.RegisterResponse, tags=["Auth"])
 async def register(data: schemas.UserCreate, request: Request, db: AsyncSession = Depends(get_db)):
-    if not await verify_recaptcha(data.recaptcha_token or "", get_client_ip(request) or ""):
-        raise HTTPException(status_code=400, detail="CAPTCHA_FAILED: Complete the human verification challenge again.")
     result = await db.execute(select(User).where(User.email == data.email))
     if result.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="An account with this email already exists")
@@ -332,10 +330,13 @@ async def email_delivery_status(current_user: User = Depends(require_admin)):
 
 @app.post("/api/auth/login", tags=["Auth"])
 async def login(data: schemas.LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
-    if not await verify_recaptcha(data.recaptcha_token or "", get_client_ip(request) or ""):
+    if data.portal == "staff" and not await verify_recaptcha(data.recaptcha_token or "", get_client_ip(request) or ""):
         raise HTTPException(status_code=400, detail="CAPTCHA_FAILED: Complete the photographic verification challenge again.")
     result = await db.execute(select(User).where(User.email == data.email))
     user = result.scalar_one_or_none()
+
+    if data.portal == "candidate" and user and user.role != UserRole.CANDIDATE:
+        raise HTTPException(status_code=401, detail="Incorrect email or password")
 
     if user and user.locked_until and user.locked_until > datetime.utcnow():
         raise HTTPException(status_code=423, detail=f"Account temporarily locked until {user.locked_until.isoformat()}Z")
@@ -351,8 +352,6 @@ async def login(data: schemas.LoginRequest, request: Request, db: AsyncSession =
     if not user.is_active:
         raise HTTPException(status_code=403, detail="This account has been deactivated. Contact NIRPR administration.")
 
-    if data.portal == "candidate" and user.role != UserRole.CANDIDATE:
-        raise HTTPException(status_code=403, detail="Staff accounts must sign in through the administration login page.")
     if data.portal == "staff" and user.role == UserRole.CANDIDATE:
         raise HTTPException(status_code=403, detail="Candidate accounts must sign in through the candidate login page.")
 
@@ -1853,11 +1852,32 @@ async def download_certificate(
 # ---------------------------------------------------------------------------
 # Admin: approval queue, users, dashboard, audit log
 # ---------------------------------------------------------------------------
+def attempt_schedule_filter(schedule_key: str):
+    overrides = select(ExamScheduleOverride.id).where(
+        ExamScheduleOverride.exam_id == ExamAttempt.exam_id,
+        ExamScheduleOverride.user_id == ExamAttempt.user_id,
+    )
+    if schedule_key == "general":
+        return ~overrides.exists()
+    if schedule_key.startswith("custom:"):
+        try:
+            start, end = map(datetime.fromisoformat, schedule_key[7:].split("|", 1))
+            if start.tzinfo is None and end.tzinfo is None and start < end:
+                return overrides.where(
+                    ExamScheduleOverride.start_time == start,
+                    ExamScheduleOverride.end_time == end,
+                ).exists()
+        except ValueError:
+            pass
+    raise HTTPException(status_code=400, detail="Select a specific exam schedule")
+
+
 @app.get("/api/admin/attempts", tags=["Admin"])
 async def list_attempts(
     status_filter: Optional[str] = None,
     exam_id: Optional[int] = None,
     training_program_id: Optional[int] = None,
+    schedule_key: Optional[str] = None,
     current_user: User = Depends(require_examiner),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1866,12 +1886,18 @@ async def list_attempts(
         .join(User, ExamAttempt.user_id == User.id)
         .join(Exam, ExamAttempt.exam_id == Exam.id)
     )
-    if status_filter:
+    if status_filter == "pending":
+        q = q.where(ExamAttempt.status.in_(ExamEngine.APPROVABLE_STATUSES))
+    elif status_filter:
         q = q.where(ExamAttempt.status == AttemptStatus(status_filter))
     if exam_id:
         q = q.where(ExamAttempt.exam_id == exam_id)
     if training_program_id:
         q = q.where(Exam.training_program_id == training_program_id)
+    if schedule_key:
+        if not exam_id:
+            raise HTTPException(status_code=400, detail="Select an exam first")
+        q = q.where(attempt_schedule_filter(schedule_key))
 
     result = await db.execute(q.order_by(ExamAttempt.submitted_at.desc().nullslast()))
     out = []
@@ -1928,6 +1954,47 @@ async def approve_attempt(
             email_utils.send_result_notification_email(candidate.email, candidate.full_name, exam.title, bool(attempt.passed))
 
     return {"detail": f"Result {data.action}d", "attempt_id": attempt.id, "status": attempt.status.value}
+
+
+@app.post("/api/admin/exams/{exam_id}/release-results", tags=["Admin"])
+async def release_schedule_results(
+    exam_id: int,
+    schedule_key: str,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(require_examiner),
+    db: AsyncSession = Depends(get_db),
+):
+    schedule_filter = attempt_schedule_filter(schedule_key)
+    exam = await db.get(Exam, exam_id)
+    if exam is None:
+        raise HTTPException(status_code=404, detail="Exam not found")
+
+    attempts = await ExamEngine.update_result_approvals(
+        db, current_user, True, None, ExamAttempt.exam_id == exam_id, schedule_filter,
+    )
+    if not attempts:
+        return {"released_count": 0, "detail": "No pending results for this schedule."}
+
+    candidates = {
+        candidate.id: candidate
+        for candidate in (await db.scalars(
+            select(User).where(User.id.in_({attempt.user_id for attempt in attempts}))
+        )).all()
+    }
+    await log_audit(
+        db, "schedule_results_released", user_id=current_user.id, entity_type="exam",
+        entity_id=exam_id, details={"schedule_key": schedule_key, "released_count": len(attempts)},
+    )
+    for attempt in attempts:
+        candidate = candidates.get(attempt.user_id)
+        if candidate:
+            background_tasks.add_task(
+                email_utils.send_result_notification_email,
+                candidate.email, candidate.full_name, exam.title, bool(attempt.passed),
+            )
+
+    count = len(attempts)
+    return {"released_count": count, "detail": f"Released {count} {'result' if count == 1 else 'results'}."}
 
 
 @app.post("/api/admin/attempts/{attempt_id}/grant-retake", response_model=schemas.MessageResponse, tags=["Admin"])
