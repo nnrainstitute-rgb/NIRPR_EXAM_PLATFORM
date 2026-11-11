@@ -107,12 +107,19 @@
         <select id="approvalProgramFilter" style="width:auto"><option value="">All training programmes</option></select>
         <label class="mb-0" style="margin:0;">Filter:</label>
         <select id="approvalFilter" style="width:auto;">
-          <option value="submitted">Pending review</option>
+          <option value="pending">Pending review</option>
           <option value="auto_submitted">Auto-submitted (time expired)</option>
           <option value="approved">Approved</option>
           <option value="rejected">Rejected</option>
           <option value="">All</option>
         </select>
+        <select id="approvalExamFilter" aria-label="Exam" style="width:auto">
+          <option value="">All exams</option>
+        </select>
+        <select id="approvalScheduleFilter" aria-label="Exam schedule" style="width:auto" disabled>
+          <option value="">Select a schedule</option>
+        </select>
+        <button id="releaseScheduleResults" type="button" class="btn small" disabled>Release all results for schedule</button>
       </div>
       <div id="approvalsList"><p class="muted">Loading...</p></div>
     </div>
@@ -1557,15 +1564,62 @@ document.getElementById("newExamBtn").addEventListener("click", async () => {
 });
 
 // ---- Approvals ----
+const approvalProgramme = document.getElementById("approvalProgramFilter");
+const approvalExam = document.getElementById("approvalExamFilter");
+const approvalSchedule = document.getElementById("approvalScheduleFilter");
+const releaseScheduleButton = document.getElementById("releaseScheduleResults");
+let approvalsLoadVersion = 0;
+let releasingScheduleResults = false;
+
 async function loadApprovals() {
-  await ensureProgrammeFilters();
-  const status = document.getElementById("approvalFilter").value;
-  const url = new URL(`${API}/admin/attempts`, window.location.origin);
-  if (status) url.searchParams.set("status_filter", status);
-  const pid=document.getElementById('approvalProgramFilter').value;if(pid)url.searchParams.set('training_program_id',pid);
-  const res = await fetch(url, { headers: authHeaders() });
-  const attempts = await res.json();
+  const version = ++approvalsLoadVersion;
   const list = document.getElementById("approvalsList");
+  releaseScheduleButton.disabled = true;
+  list.textContent = "Loading…";
+  try {
+    await ensureProgrammeFilters();
+    const programmeId = approvalProgramme.value;
+    const selectedExam = approvalExam.value;
+    const exams = await readExamResponse(await fetch(
+      `${API}/exams${programmeId ? `?training_program_id=${programmeId}` : ""}`,
+      { headers: authHeaders() },
+    ), "Could not load exams");
+    if (version !== approvalsLoadVersion) return;
+    approvalExam.replaceChildren(new Option("All exams", ""), ...exams.map(exam =>
+      new Option(`${exam.title} — ${new Date(exam.start_time).toLocaleString()}`, exam.id),
+    ));
+    if (exams.some(exam => String(exam.id) === selectedExam)) approvalExam.value = selectedExam;
+    const examId = approvalExam.value;
+    const selectedSchedule = approvalSchedule.value;
+    approvalSchedule.disabled = true;
+    const schedules = examId ? await readExamResponse(await fetch(
+      `${API}/admin/reports/schedules?exam_id=${examId}`, { headers: authHeaders() },
+    ), "Could not load exam schedules") : [];
+    if (version !== approvalsLoadVersion) return;
+    approvalSchedule.replaceChildren(new Option("Select a schedule", ""), ...schedules
+      .filter(schedule => schedule.key !== "all")
+      .map(schedule => new Option(schedule.label, schedule.key)));
+    if (schedules.some(schedule => schedule.key === selectedSchedule)) approvalSchedule.value = selectedSchedule;
+    approvalSchedule.disabled = !examId;
+
+    const url = new URL(`${API}/admin/attempts`, window.location.origin);
+    const status = document.getElementById("approvalFilter").value;
+    if (status) url.searchParams.set("status_filter", status);
+    if (programmeId) url.searchParams.set("training_program_id", programmeId);
+    if (examId) url.searchParams.set("exam_id", examId);
+    if (approvalSchedule.value) url.searchParams.set("schedule_key", approvalSchedule.value);
+    const attempts = await readExamResponse(
+      await fetch(url, { headers: authHeaders() }), "Could not load results",
+    );
+    if (version !== approvalsLoadVersion) return;
+    renderApprovals(list, attempts);
+    releaseScheduleButton.disabled = !approvalSchedule.value || releasingScheduleResults;
+  } catch (error) {
+    if (version === approvalsLoadVersion) list.textContent = error.message;
+  }
+}
+
+function renderApprovals(list, attempts) {
   if (!attempts.length) { list.innerHTML = `<div class="empty-state">Nothing here.</div>`; return; }
   const riskBadge = { high: 'red', moderate: 'gold', low: 'gray' };
   list.innerHTML = attempts.map(a => `
@@ -1595,7 +1649,35 @@ async function loadApprovals() {
   `).join("");
 }
 document.getElementById("approvalFilter").addEventListener("change", loadApprovals);
-document.getElementById("approvalProgramFilter").addEventListener("change", loadApprovals);
+approvalProgramme.addEventListener("change", loadApprovals);
+approvalExam.addEventListener("change", () => {
+  approvalSchedule.value = "";
+  loadApprovals();
+});
+approvalSchedule.addEventListener("change", loadApprovals);
+releaseScheduleButton.addEventListener("click", async () => {
+  const examId = approvalExam.value;
+  const scheduleKey = approvalSchedule.value;
+  if (!examId || !scheduleKey || releasingScheduleResults) return;
+  const scope = `${approvalExam.selectedOptions[0].text}\n${approvalSchedule.selectedOptions[0].text}`;
+  if (!confirm(`Release all pending results, including auto-submitted attempts?\n\n${scope}`)) return;
+
+  releasingScheduleResults = true;
+  releaseScheduleButton.disabled = true;
+  try {
+    const response = await fetch(
+      `${API}/admin/exams/${examId}/release-results?schedule_key=${encodeURIComponent(scheduleKey)}`,
+      { method: "POST", headers: authHeaders() },
+    );
+    const result = await readExamResponse(response, "Could not release results");
+    showAlert(esc(result.detail), result.released_count ? "success" : "warn");
+  } catch (error) {
+    showAlert(esc(error.message), "error");
+  } finally {
+    releasingScheduleResults = false;
+    loadApprovals();
+  }
+});
 
 window.viewScript = async function (attemptId) {
   try {

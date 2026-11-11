@@ -6,7 +6,7 @@ import random
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, func
+from sqlalchemy import select, and_, func, update
 from fastapi import HTTPException, status
 
 from models import (
@@ -19,6 +19,8 @@ from exam_eligibility import require_exam_eligibility
 
 
 class ExamEngine:
+    APPROVABLE_STATUSES = (AttemptStatus.SUBMITTED, AttemptStatus.AUTO_SUBMITTED)
+
     @staticmethod
     async def generate_question_set(
         db: AsyncSession,
@@ -413,22 +415,34 @@ class ExamEngine:
         approved: bool,
         notes: Optional[str] = None
     ) -> ExamAttempt:
-        if attempt.status not in [AttemptStatus.SUBMITTED, AttemptStatus.AUTO_SUBMITTED]:
+        updated = await ExamEngine.update_result_approvals(
+            db, approver, approved, notes, ExamAttempt.id == attempt.id,
+        )
+        if not updated:
             raise HTTPException(status_code=400, detail="Attempt is not ready for approval")
-
-        attempt.approved_by = approver.id
-        attempt.approved_at = datetime.utcnow()
-        attempt.approval_notes = notes
-        attempt.result_released = approved
-
-        if approved:
-            attempt.status = AttemptStatus.APPROVED
-        else:
-            attempt.status = AttemptStatus.REJECTED
-
         await db.commit()
-        await db.refresh(attempt)
-        return attempt
+        return updated[0]
+
+    @staticmethod
+    async def update_result_approvals(
+        db: AsyncSession, approver: User, approved: bool, notes: Optional[str], *filters,
+    ) -> List[ExamAttempt]:
+        statement = (
+            update(ExamAttempt)
+            .where(ExamAttempt.status.in_(ExamEngine.APPROVABLE_STATUSES), *filters)
+            .values(
+                approved_by=approver.id,
+                approved_at=datetime.utcnow(),
+                approval_notes=notes,
+                result_released=approved,
+                status=AttemptStatus.APPROVED if approved else AttemptStatus.REJECTED,
+            )
+            .returning(ExamAttempt)
+        )
+        return list((await db.scalars(statement, execution_options={
+            "synchronize_session": "fetch",
+            "populate_existing": True,
+        })).all())
 
     @staticmethod
     async def record_suspicious_activity(
