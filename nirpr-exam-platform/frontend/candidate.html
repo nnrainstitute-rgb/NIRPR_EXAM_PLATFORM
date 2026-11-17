@@ -10,7 +10,7 @@
 <script src="/static/js/logout.js"></script></head>
 <body>
 
-<div class="topbar">
+<div class="topbar" id="candidateTopbar">
   <div class="brand">
     <div class="crest"><img src="/static/images/nnra-logo.jpg" alt="NNRA logo"></div>
     <div>
@@ -135,16 +135,20 @@
     <div class="exam-timer" id="examTimer">--:--</div>
   </div>
 
-  <div class="grid" style="grid-template-columns: minmax(0, 1fr) 280px; align-items:start;">
+  <div class="exam-layout">
     <main class="exam-main-card">
+      <div class="exam-tools">
+        <button class="btn small secondary" id="toggleCalcBtn" type="button">Calculator</button>
+        <button class="btn small secondary" id="reviewQuestionsBtn" type="button">Review questions</button>
+      </div>
       <div id="questionBody">Loading question...</div>
-      <div class="row between" style="margin-top:28px;">
+      <div class="exam-question-actions">
         <button class="btn secondary" id="prevBtn" type="button">&larr; Previous</button>
         <button class="btn secondary" id="nextBtn" type="button">Next &rarr;</button>
       </div>
     </main>
 
-    <aside class="exam-sidebar">
+    <aside class="exam-sidebar" id="examReview" tabindex="-1" aria-label="Review questions">
       <div class="sidebar-label">Your progress</div>
       <div class="exam-completion" id="examCompletion">
         <strong id="examCompletionPercent">0%</strong>
@@ -161,7 +165,6 @@
         <span style="color:var(--text-mute)">&#9633;</span> Not answered
       </p>
       <div class="exam-save-note">Answers save automatically</div>
-      <button class="btn secondary block" style="margin-top:10px;" id="toggleCalcBtn" type="button">&#128290; Calculator</button>
       <button class="btn danger block" style="margin-top:10px;" id="submitExamBtn" type="button">Submit exam</button>
     </aside>
   </div>
@@ -423,19 +426,7 @@ async function resumeExam(active) {
       if (isAnsweredValue(savedAnswers[key])) session.answers[q.id] = savedAnswers[key];
     }
 
-    document.getElementById("dashboardView").classList.add("hidden");
-    document.getElementById("examView").classList.remove("hidden");
-    document.getElementById("examTitleHeader").textContent = session.title;
-
-    try { document.documentElement.requestFullscreen && document.documentElement.requestFullscreen().catch(()=>{}); } catch(e) {}
-
-    buildNavGrid();
-    renderQuestion();
-    startTimer();
-    startSync();
-
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    document.addEventListener("fullscreenchange", onFullscreenChange);
+    showExamSession();
   } catch (err) {
     showAlert("Could not resume your exam. Please contact NIRPR support.", "error");
   }
@@ -668,14 +659,22 @@ async function startExamSession(startData) {
     startedAt: Date.now(),
   };
 
+  showExamSession();
+}
+
+function showExamSession() {
+  document.body.classList.add("exam-active");
   document.getElementById("dashboardView").classList.add("hidden");
   document.getElementById("examView").classList.remove("hidden");
   document.getElementById("examTitleHeader").textContent = session.title;
 
-  try { document.documentElement.requestFullscreen && document.documentElement.requestFullscreen().catch(()=>{}); } catch(e) {}
+  if (!matchMedia("(pointer: coarse)").matches && document.fullscreenEnabled && document.documentElement.requestFullscreen) {
+    document.documentElement.requestFullscreen().catch(() => {});
+  }
 
   buildNavGrid();
   renderQuestion();
+  window.scrollTo(0, 0);
   startTimer();
   startSync();
 
@@ -725,7 +724,9 @@ function startSync() {
         clearInterval(session.timerHandle);
         clearInterval(session.syncHandle);
         document.getElementById("examView").classList.add("hidden");
+        document.body.classList.remove("exam-active");
         document.getElementById("submittedView").classList.remove("hidden");
+        window.scrollTo(0, 0);
         document.getElementById("submittedMessage").textContent =
           "Time expired and your exam was submitted automatically. Your result will be released after NIRPR review and approval.";
         session = null;
@@ -739,10 +740,18 @@ function startSync() {
 function buildNavGrid() {
   const grid = document.getElementById("qNavGrid");
   grid.innerHTML = session.questions.map((q, i) =>
-    `<button class="q-nav-btn" id="nav-${i}" onclick="jumpTo(${i})">${i + 1}</button>`
+    `<button type="button" class="q-nav-btn" id="nav-${i}" onclick="jumpTo(${i})">${i + 1}</button>`
   ).join("");
 }
-window.jumpTo = function (i) { session.currentIndex = i; renderQuestion(); };
+window.jumpTo = function (i) {
+  const activeInput = document.activeElement;
+  if (activeInput.classList.contains("fillgap-input")) activeInput.blur();
+  session.currentIndex = i;
+  renderQuestion();
+  const heading = document.querySelector(".question-heading");
+  heading.focus();
+  heading.scrollIntoView({ block: "start" });
+};
 
 
 function isAnsweredValue(value) {
@@ -772,8 +781,12 @@ function updateExamCompletion() {
 function refreshNav() {
   session.questions.forEach((q, i) => {
     const btn = document.getElementById(`nav-${i}`);
-    btn.classList.toggle("answered", isAnsweredValue(session.answers[q.id]));
-    btn.classList.toggle("current", i === session.currentIndex);
+    const answered = isAnsweredValue(session.answers[q.id]);
+    const current = i === session.currentIndex;
+    btn.classList.toggle("answered", answered);
+    btn.classList.toggle("current", current);
+    btn.setAttribute("aria-label", `Question ${i + 1}, ${answered ? "answered" : "unanswered"}`);
+    btn.setAttribute("aria-current", current ? "step" : "false");
   });
   document.getElementById("examProgress").textContent =
   `Question ${session.currentIndex + 1} of ${session.questions.length} • ${answeredCount()} answered`;
@@ -794,7 +807,8 @@ function renderQuestion() {
     const inputs = Array.from({ length: blanksCount }).map((_, i) => `
       <input type="text" class="fillgap-input" data-blank="${i}"
         name="answer-${q.id}-${i}" autocomplete="off"
-        value="${(selected[i] || '').replace(/"/g, '&quot;')}"
+        value="${escapeHtml(selected[i] || '')}"
+        aria-label="${q.question_type === 'fill_in_gap' ? `Answer for blank ${i + 1}` : 'Your answer'}"
         placeholder="${q.question_type === 'fill_in_gap' ? `Answer for blank ${i + 1}` : 'Your answer'}"
         style="margin-bottom:8px;" />
     `).join("");
@@ -809,11 +823,11 @@ function renderQuestion() {
   } else {
     const optionsHtml = Object.entries(q.options).sort(([a], [b]) => a.localeCompare(b)).map(([key, text]) => {
       const isSel = selected.includes(key);
-      return `<div class="option-row ${isSel ? 'selected' : ''}" data-option-key="${key}">
-        <input type="${multi ? 'checkbox' : 'radio'}" name="opt-${q.id}" ${isSel ? 'checked' : ''}
-          autocomplete="off" tabindex="-1" aria-hidden="true" />
-        <div><strong>${key}.</strong> ${text}</div>
-      </div>`;
+      return `<label class="option-row ${isSel ? 'selected' : ''}">
+        <input type="${multi ? 'checkbox' : 'radio'}" name="opt-${q.id}" value="${escapeHtml(key)}"
+          ${isSel ? 'checked' : ''} autocomplete="off" />
+        <span><strong>${escapeHtml(key)}.</strong> ${text}</span>
+      </label>`;
     }).join("");
     bodyHtml = `
       <p style="font-size:15.5px; font-weight:600; line-height:1.5;">${q.question_text}</p>
@@ -823,12 +837,12 @@ function renderQuestion() {
   }
 
   document.getElementById("questionBody").innerHTML = `
-    <div class="question-heading">
+    <h2 class="question-heading" tabindex="-1">
       <span class="question-counter">Question ${session.currentIndex + 1} of ${session.questions.length}</span>
-      <div class="row">
-        <span class="badge blue">${q.topic || 'General'}</span>
-        <span class="badge gray">${q.marks} mark${q.marks == 1 ? '' : 's'}</span>
-      </div>
+    </h2>
+    <div class="question-meta">
+      <span class="badge blue">${escapeHtml(q.topic || 'General')}</span>
+      <span class="badge gray">${q.marks} mark${q.marks == 1 ? '' : 's'}</span>
     </div>
     ${bodyHtml}
 
@@ -837,19 +851,24 @@ function renderQuestion() {
   if (isTextType) {
     document.querySelectorAll(".fillgap-input").forEach(input => {
       input.addEventListener("change", () => saveTextAnswer(q));
-      input.addEventListener("blur", () => saveTextAnswer(q));
     });
   } else {
-    document.querySelectorAll(".option-row").forEach(row => {
-      row.addEventListener("click", () => selectOption(row.dataset.optionKey, multi, q.id));
-      const input = row.querySelector("input");
-      input.checked = isAnsweredValue(selected) && selected.includes(row.dataset.optionKey);
+    const inputs = Array.from(document.querySelectorAll(".option-row input"));
+    inputs.forEach(input => {
+      input.addEventListener("change", () => {
+        const answers = inputs.filter(option => option.checked).map(option => option.value);
+        if (answers.length) session.answers[q.id] = answers;
+        else delete session.answers[q.id];
+        inputs.forEach(option => option.closest("label").classList.toggle("selected", option.checked));
+        refreshNav();
+        saveAnswer(q.id, answers);
+      });
     });
   }
 
   document.getElementById("prevBtn").disabled = session.currentIndex === 0;
   document.getElementById("nextBtn").textContent =
-    session.currentIndex === session.questions.length - 1 ? "Finish reviewing" : "Next \u2192";
+    session.currentIndex === session.questions.length - 1 ? "Review answers" : "Next \u2192";
 
   refreshNav();
 }
@@ -865,40 +884,31 @@ function saveTextAnswer(q) {
   }
   refreshNav();
 
+  saveAnswer(q.id, inputs);
+}
+
+function saveAnswer(questionId, answers) {
   fetch(`${API}/attempts/${session.attemptId}/answer`, {
     method: "POST",
     headers: authHeaders({ "Content-Type": "application/json" }),
-    body: JSON.stringify({ question_id: q.id, selected_answer: inputs, time_spent_seconds: 0 }),
+    body: JSON.stringify({ question_id: questionId, selected_answer: answers, time_spent_seconds: 0 }),
   }).catch(() => {});
 }
 
-window.selectOption = function (key, multi, questionId) {
-  const q = session.questions[session.currentIndex];
-  // Ignore a delayed click from DOM belonging to the previous question.
-  if (String(q.id) !== String(questionId)) return;
-  let current = session.answers[q.id] || [];
-  if (multi) {
-    current = current.includes(key) ? current.filter(k => k !== key) : [...current, key];
-  } else {
-    current = [key];
-  }
-  if (isAnsweredValue(current)) session.answers[q.id] = current;
-  else delete session.answers[q.id];
-  renderQuestion();
-
-  fetch(`${API}/attempts/${session.attemptId}/answer`, {
-    method: "POST",
-    headers: authHeaders({ "Content-Type": "application/json" }),
-    body: JSON.stringify({ question_id: q.id, selected_answer: current, time_spent_seconds: 0 }),
-  }).catch(() => {});
-};
+function reviewQuestions() {
+  const review = document.getElementById("examReview");
+  review.focus();
+  review.scrollIntoView({ block: "start" });
+}
 
 document.getElementById("prevBtn").addEventListener("click", () => {
-  if (session.currentIndex > 0) { session.currentIndex--; renderQuestion(); }
+  if (session.currentIndex > 0) jumpTo(session.currentIndex - 1);
 });
 document.getElementById("nextBtn").addEventListener("click", () => {
-  if (session.currentIndex < session.questions.length - 1) { session.currentIndex++; renderQuestion(); }
+  if (session.currentIndex < session.questions.length - 1) jumpTo(session.currentIndex + 1);
+  else reviewQuestions();
 });
+document.getElementById("reviewQuestionsBtn").addEventListener("click", reviewQuestions);
 
 document.getElementById("submitExamBtn").addEventListener("click", () => {
   const unanswered = session.questions.length - answeredCount();
@@ -1106,7 +1116,9 @@ async function finishExam(autoSubmit) {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || "Submission failed");
     document.getElementById("examView").classList.add("hidden");
+    document.body.classList.remove("exam-active");
     document.getElementById("submittedView").classList.remove("hidden");
+    window.scrollTo(0, 0);
     document.getElementById("submittedMessage").textContent = autoSubmit
       ? "Time expired and your exam was submitted automatically. Your result will be released after NIRPR review and approval."
       : "Your exam has been submitted successfully. Your result will be released after NIRPR review and approval.";
