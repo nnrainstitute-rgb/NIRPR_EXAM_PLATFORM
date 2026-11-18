@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en"><head>
 <link rel="icon" type="image/jpeg" href="/static/images/nnra-logo.jpg"><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Staff Login - NIRPR RSO Examination Portal</title><link rel="stylesheet" href="/static/css/style.css"><script src="https://www.google.com/recaptcha/api.js?render=explicit" async defer></script><script src="/static/js/recaptcha.js"></script></head>
+<title>Staff Login - NIRPR RSO Examination Portal</title><link rel="stylesheet" href="/static/css/style.css"></head>
 <body><div class="topbar"><div class="brand"><div class="crest"><img src="/static/images/nnra-logo.jpg" alt="NNRA logo"></div><div>NIRPR RSO Examination Portal<div class="brand-sub">Administration and examination staff access</div></div></div></div>
 <main class="container narrow"><div class="card"><div id="alertBox"></div><h1 class="mt-0">Administration login</h1>
 <p class="subtitle">Restricted to authorized NIRPR administrators, super administrators and examiners.</p>
@@ -20,14 +20,14 @@
     </svg>
   </button>
 </div>
-<label>Human verification</label><div id="recaptchaWidget"></div>
+
 <label>Authenticator code <span class="muted">(required after 2FA is enabled)</span></label><input id="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="6-digit code">
 <div class="row between" style="margin-top:8px"><a href="/forgot-password" style="font-size:12.5px">Forgot password?</a></div>
 <button class="btn block" id="loginBtn" style="margin-top:16px">Sign in to administration</button></form>
 <div id="approvalBox" class="hidden" style="margin-top:16px"></div>
 <div style="text-align:center;margin-top:20px;font-size:13px" class="muted">Candidate? <a href="/">Open candidate login</a></div></div></main>
 <script>
-const API='/api';let recaptchaWidgetId=null;const alertBox=document.getElementById('alertBox');
+const API='/api';const alertBox=document.getElementById('alertBox');
 const password = document.getElementById("password");
 const togglePassword = document.getElementById("togglePassword");
 togglePassword.addEventListener("click", () => {
@@ -38,8 +38,8 @@ togglePassword.addEventListener("click", () => {
 });
 function escapeMessage(value){const span=document.createElement('span');span.textContent=String(value);return span.innerHTML;}
 function show(msg,type='error'){alertBox.innerHTML=`<div class="alert ${type}">${escapeMessage(msg)}</div>`;}
-async function renderRecaptcha() { recaptchaWidgetId = await window.nirprRenderRecaptcha(); }
-const existingToken=localStorage.getItem('nirpr_token'),existingRole=localStorage.getItem('nirpr_role');if(existingToken&&existingRole&&existingRole!=='candidate')location.href=localStorage.getItem('nirpr_must_change_password')==='true'?'/change-password':'/admin';renderRecaptcha();
+
+const existingToken=localStorage.getItem('nirpr_token'),existingRole=localStorage.getItem('nirpr_role');if(existingToken&&existingRole&&existingRole!=='candidate')location.href=localStorage.getItem('nirpr_must_change_password')==='true'?'/change-password':'/admin';
 async function waitForApproval(requestId,pollToken){document.getElementById('loginForm').classList.add('hidden');const box=document.getElementById('approvalBox');box.classList.remove('hidden');box.innerHTML='<div class="alert info"><strong>Superior approval required</strong><p>Your credentials and 2FA are valid. This login is waiting for approval from the Head of ICT or General Manager.</p><p id="approvalStatus">Checking approval status…</p></div>';for(let count=0;count<300;count++){await new Promise(resolve=>setTimeout(resolve,3000));const r=await fetch(`${API}/auth/staff-approval/${requestId}/status?poll_token=${encodeURIComponent(pollToken)}`,{method:'POST'}),d=await r.json();if(r.ok&&d.status==='pending'){document.getElementById('approvalStatus').textContent='Still waiting for superior approval…';continue;}if(r.ok&&d.status==='approved'){localStorage.setItem('nirpr_token',d.access_token);localStorage.setItem('nirpr_role',d.user_role);localStorage.setItem('nirpr_must_change_password',String(Boolean(d.must_change_password)));location.href=d.must_change_password?'/change-password':'/admin';return;}box.innerHTML=`<div class="alert error">${escapeMessage(d.detail||'The approval request could not be completed.')}</div><button class="btn block" onclick="location.reload()">Return to login</button>`;return;}}
-document.getElementById('loginForm').onsubmit=async e=>{e.preventDefault();const btn=document.getElementById('loginBtn');btn.disabled=true;btn.textContent='Signing in…';try{const r=await fetch(`${API}/auth/login`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:document.getElementById('email').value.trim(),password:document.getElementById('password').value,portal:'staff',otp:document.getElementById('otp').value.trim()||null,recaptcha_token:recaptchaWidgetId===null?'':grecaptcha.getResponse(recaptchaWidgetId)})}),d=await r.json();if(!r.ok)throw new Error(d.detail||'Login failed');if(d.approval_required){waitForApproval(d.request_id,d.poll_token);return;}localStorage.setItem('nirpr_token',d.access_token);localStorage.setItem('nirpr_role',d.user_role);localStorage.setItem('nirpr_must_change_password',String(Boolean(d.must_change_password)));location.href=d.must_change_password?'/change-password':'/admin';}catch(err){show(err.message);if(recaptchaWidgetId!==null)grecaptcha.reset(recaptchaWidgetId);}finally{btn.disabled=false;btn.textContent='Sign in to administration';}};
+document.getElementById('loginForm').onsubmit=async e=>{e.preventDefault();const btn=document.getElementById('loginBtn');btn.disabled=true;btn.textContent='Signing in…';try{const r=await fetch(`${API}/auth/login`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:document.getElementById('email').value.trim(),password:document.getElementById('password').value,portal:'staff',otp:document.getElementById('otp').value.trim()||null})}),d=await r.json();if(!r.ok)throw new Error(d.detail||'Login failed');if(d.approval_required){waitForApproval(d.request_id,d.poll_token);return;}localStorage.setItem('nirpr_token',d.access_token);localStorage.setItem('nirpr_role',d.user_role);localStorage.setItem('nirpr_must_change_password',String(Boolean(d.must_change_password)));location.href=d.must_change_password?'/change-password':'/admin';}catch(err){show(err.message);}finally{btn.disabled=false;btn.textContent='Sign in to administration';}};
 </script></body></html>

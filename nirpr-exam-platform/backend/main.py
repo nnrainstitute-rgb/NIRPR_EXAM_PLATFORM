@@ -330,8 +330,6 @@ async def email_delivery_status(current_user: User = Depends(require_admin)):
 
 @app.post("/api/auth/login", tags=["Auth"])
 async def login(data: schemas.LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
-    if data.portal == "staff" and not await verify_recaptcha(data.recaptcha_token or "", get_client_ip(request) or ""):
-        raise HTTPException(status_code=400, detail="CAPTCHA_FAILED: Complete the photographic verification challenge again.")
     result = await db.execute(select(User).where(User.email == data.email))
     user = result.scalar_one_or_none()
 
