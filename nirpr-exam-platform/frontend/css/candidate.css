@@ -416,6 +416,8 @@ body[data-theme="dark"] .organization-card {
 
 /* Active exam shell */
 #examView {
+  position: relative;
+  z-index: 1;
   max-width: 1180px;
   width: 100%;
   overflow-wrap: anywhere;
@@ -423,6 +425,7 @@ body[data-theme="dark"] .organization-card {
   padding-right: max(10px, env(safe-area-inset-right));
   padding-bottom: max(24px, env(safe-area-inset-bottom));
 }
+body.exam-active .exam-watermark { z-index: 0; }
 body.exam-active #candidateTopbar { display: none; }
 .exam-layout {
   display: grid;
@@ -512,7 +515,7 @@ body.exam-active #candidateTopbar { display: none; }
 #examView .exam-sidebar {
   border: 1px solid var(--border);
   border-radius: 20px;
-  background: rgba(255,255,255,.86);
+  background: var(--surface);
   box-shadow: var(--shadow-md);
 }
 #examView .exam-main-card { min-height: 520px; padding: 30px; }
@@ -571,9 +574,7 @@ body.exam-active #candidateTopbar { display: none; }
   #examView { padding-top: 8px; }
   .exam-layout { grid-template-columns: minmax(0, 1fr); gap: 12px; }
   #examView .exam-topbar {
-    position: sticky;
-    top: 0;
-    z-index: 20;
+    flex-wrap: wrap;
     gap: 8px;
     margin-bottom: 12px;
     padding: 10px;
@@ -587,9 +588,6 @@ body.exam-active #candidateTopbar { display: none; }
   #examView .exam-sidebar { position: static; padding: 12px; }
   .option-row { min-height: 44px; padding: 11px; gap: 10px; }
   .exam-question-actions {
-    position: sticky;
-    bottom: 0;
-    z-index: 10;
     margin: 16px -12px -12px;
     padding: 10px 12px max(10px, env(safe-area-inset-bottom));
     background: var(--surface);
