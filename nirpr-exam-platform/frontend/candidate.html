@@ -3,10 +3,10 @@
 <head>
 <link rel="icon" type="image/jpeg" href="/static/images/nnra-logo.jpg">
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <title>Candidate Portal - NIRPR RSO Examination Platform</title>
 <link rel="stylesheet" href="/static/css/style.css" />
-<link rel="stylesheet" href="/static/css/candidate.css" />
+<link rel="stylesheet" href="/static/css/candidate.css?v=20261118-2" />
 <script src="/static/js/logout.js"></script></head>
 <body>
 
@@ -100,7 +100,7 @@
         <div><label for="themeSelect">Appearance</label><select id="themeSelect"><option value="light">Light mode</option><option value="dark">Dark mode</option></select></div>
         <div><label for="colorSelect">Accent color</label><select id="colorSelect"><option value="green">NIRPR green</option><option value="blue">Blue</option><option value="purple">Purple</option><option value="teal">Teal</option></select></div>
       </div>
-      <label>Candidate portal text and interface size</label><p class="muted">Use these controls to make dashboard text, exam questions, navigation, forms and buttons smaller or larger on this device.</p><div class="row"><button class="btn secondary" id="fontDown" type="button">A− Make everything smaller</button><button class="btn secondary" id="fontReset" type="button">Reset to standard size</button><button class="btn secondary" id="fontUp" type="button">A+ Make everything larger</button><span class="muted" id="fontScaleLabel"></span></div>
+      <label>Candidate portal text size</label><p class="muted">Adjust text size for this device.</p><div class="row"><button class="btn secondary" id="fontDown" type="button">A− Smaller text</button><button class="btn secondary" id="fontReset" type="button">Standard text</button><button class="btn secondary" id="fontUp" type="button">A+ Larger text</button><span class="muted" id="fontScaleLabel"></span></div>
       <div class="alert info" style="margin-top:18px">Your display preferences are saved automatically in this browser.</div>
     </div>
     <div class="card"><h2>Logged-in devices and sessions</h2><p class="subtitle">The address <strong>127.0.0.1</strong> means this computer because the platform is running locally. Review active sessions below and revoke any login you do not recognize.</p><div id="sessionsList"><p class="muted">Loading sessions…</p></div></div>
@@ -813,7 +813,7 @@ function renderQuestion() {
         style="margin-bottom:8px;" />
     `).join("");
     bodyHtml = `
-      <p style="font-size:15.5px; font-weight:600; line-height:1.5;">${q.question_text}</p>
+      <div class="question-copy" tabindex="0" role="region" aria-label="Question text">${q.question_text}</div>
       <p class="muted" style="font-size:12px;">
         ${q.question_type === 'fill_in_gap' ? 'Fill in the blank(s) above. ' : 'Type your answer below. '}
         Answers are not case-sensitive.
@@ -826,11 +826,11 @@ function renderQuestion() {
       return `<label class="option-row ${isSel ? 'selected' : ''}">
         <input type="${multi ? 'checkbox' : 'radio'}" name="opt-${q.id}" value="${escapeHtml(key)}"
           ${isSel ? 'checked' : ''} autocomplete="off" />
-        <span><strong>${escapeHtml(key)}.</strong> ${text}</span>
+        <span class="option-copy"><strong>${escapeHtml(key)}.</strong> ${text}</span>
       </label>`;
     }).join("");
     bodyHtml = `
-      <p style="font-size:15.5px; font-weight:600; line-height:1.5;">${q.question_text}</p>
+      <div class="question-copy" tabindex="0" role="region" aria-label="Question text">${q.question_text}</div>
       ${multi ? '<p class="muted" style="font-size:12px;">Select all that apply.</p>' : ''}
       ${optionsHtml}
     `;
@@ -1148,10 +1148,12 @@ document.getElementById("backToDashboardBtn").addEventListener("click", () => {
 
 // Accessibility preferences persist per browser and apply to both dashboard and exam.
 let fontScale = Number(localStorage.getItem('nirpr_font_scale') || 1);
+fontScale = Number.isFinite(fontScale) ? Math.min(1.35, Math.max(.85, fontScale)) : 1;
 const accentColors={green:['#046a38','#034d29','#e8f3ee'],blue:['#1769aa','#0d4778','#e8f2fb'],purple:['#6b3fa0','#47246f','#f1eafb'],teal:['#087f8c','#055761','#e4f5f6']};
 function applyDisplay(){
   const theme=localStorage.getItem('nirpr_theme')||'light',accent=localStorage.getItem('nirpr_accent')||'green',colors=accentColors[accent]||accentColors.green;
-  document.body.dataset.theme=theme; document.body.style.zoom=fontScale;
+  document.body.dataset.theme=theme;
+  document.documentElement.style.setProperty('--user-font-scale',fontScale);
   document.documentElement.style.setProperty('--nirpr-green',colors[0]);document.documentElement.style.setProperty('--nirpr-green-dark',colors[1]);document.documentElement.style.setProperty('--nirpr-green-light',colors[2]);
   document.documentElement.style.setProperty('--teal',colors[0]);document.documentElement.style.setProperty('--teal-soft',colors[2]);document.documentElement.style.setProperty('--portal-nav',colors[0]);document.documentElement.style.setProperty('--portal-nav-dark',colors[1]);
   document.getElementById('themeSelect').value=theme;document.getElementById('colorSelect').value=accent;document.getElementById('fontScaleLabel').textContent=`${Math.round(fontScale*100)}%`;
