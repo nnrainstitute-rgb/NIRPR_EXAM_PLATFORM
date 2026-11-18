@@ -6,7 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <title>Candidate Portal - NIRPR RSO Examination Platform</title>
 <link rel="stylesheet" href="/static/css/style.css" />
-<link rel="stylesheet" href="/static/css/candidate.css?v=20261118-2" />
+<link rel="stylesheet" href="/static/css/candidate.css?v=20261118-3" />
 <script src="/static/js/logout.js"></script></head>
 <body>
 
@@ -18,14 +18,20 @@
       <div class="brand-sub">Candidate Portal</div>
     </div>
   </div>
-  <nav id="tabs" class="candidate-nav" aria-label="Candidate dashboard sections">
-    <button class="active" data-tab="exams">Exams</button><button data-tab="results">Results</button><button data-tab="certificates">Certificates</button><button data-tab="payments">Payments</button><button data-tab="notifications">Announcements <span id="notificationBadge" class="notification-count hidden">0</span></button><button data-tab="settings">Settings</button>
-  </nav>
   <div class="user-chip">
     <span id="userName"></span>
     <button class="btn small secondary" id="logoutBtn">Log out</button>
   </div>
 </div>
+
+<nav id="tabs" class="candidate-nav" aria-label="Candidate dashboard sections">
+  <button type="button" class="active" data-tab="exams">Exams</button>
+  <button type="button" data-tab="results">Results</button>
+  <button type="button" data-tab="certificates">Certificates</button>
+  <button type="button" data-tab="payments">Payments</button>
+  <button type="button" data-tab="notifications">Announcements <span id="notificationBadge" class="notification-count hidden">0</span></button>
+  <button type="button" data-tab="settings">Settings</button>
+</nav>
 
 <div class="alert warn hidden" id="impersonationBanner" style="margin:0; border-radius:0; text-align:center; font-weight:700;">
   You're viewing the platform as this candidate (admin impersonation). Exam-taking actions are disabled.
@@ -148,8 +154,9 @@
       </div>
     </main>
 
-    <aside class="exam-sidebar" id="examReview" tabindex="-1" aria-label="Review questions">
-      <div class="sidebar-label">Your progress</div>
+    <details class="exam-sidebar" id="examReview" tabindex="-1">
+      <summary>Progress and question navigator</summary>
+      <div class="exam-review-content">
       <div class="exam-completion" id="examCompletion">
         <strong id="examCompletionPercent">0%</strong>
         <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
@@ -166,7 +173,8 @@
       </p>
       <div class="exam-save-note">Answers save automatically</div>
       <button class="btn danger block" style="margin-top:10px;" id="submitExamBtn" type="button">Submit exam</button>
-    </aside>
+      </div>
+    </details>
   </div>
 </div>
 
@@ -663,6 +671,7 @@ async function startExamSession(startData) {
 }
 
 function showExamSession() {
+  document.getElementById("examReview").open = false;
   document.body.classList.add("exam-active");
   document.getElementById("dashboardView").classList.add("hidden");
   document.getElementById("examView").classList.remove("hidden");
@@ -897,6 +906,7 @@ function saveAnswer(questionId, answers) {
 
 function reviewQuestions() {
   const review = document.getElementById("examReview");
+  review.open = true;
   review.focus();
   review.scrollIntoView({ block: "start" });
 }

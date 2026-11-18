@@ -196,8 +196,31 @@ body {
   letter-spacing: .025em;
   overflow-wrap: anywhere;
 }
-.candidate-nav { flex:1; justify-content:center; flex-wrap:wrap; }
-.candidate-nav button { white-space:nowrap; }
+.candidate-nav {
+  display: flex;
+  position: static;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  background: var(--portal-nav-dark, #0d263e);
+}
+.candidate-nav button {
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 1px solid rgba(255,255,255,.3);
+  border-radius: 8px;
+  color: #fff;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.candidate-nav button.active { color: var(--ink); background: var(--surface); }
+.candidate-nav button:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+@media (max-width: 760px) {
+  .candidate-nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .candidate-nav button { min-width: 0; overflow-wrap: anywhere; }
+}
 
 body[data-theme="dark"] {
   --page-bg:#09111d; --surface:#142133; --surface-soft:#1a293d; --ink:#e8eef6;
@@ -238,27 +261,7 @@ body[data-theme="dark"] .organization-card {
   border:1px solid #263a51;
   box-shadow:0 16px 34px rgba(0,0,0,.30);
 }
-@media(max-width:1050px){.topbar{height:auto;flex-wrap:wrap;gap:10px}.candidate-nav{order:3;width:100%;justify-content:flex-start;overflow-x:auto;flex-wrap:nowrap}.topbar .user-chip{margin-left:auto}}
-@media (max-width: 1050px) {
-  #candidateTopbar .candidate-nav {
-    position: static;
-    grid-column: 1 / -1;
-    width: 100%;
-    max-width: 100%;
-    min-width: 0;
-    height: auto;
-    padding: 4px 0;
-    flex-direction: row;
-    justify-content: flex-start;
-    overflow: auto;
-    background: transparent;
-    box-shadow: none;
-    transform: none;
-    visibility: visible;
-    pointer-events: auto;
-  }
-  #candidateTopbar .candidate-nav button { flex: 0 0 auto; min-height: 44px; }
-}
+@media(max-width:1050px){.topbar{height:auto;flex-wrap:wrap;gap:10px}.topbar .user-chip{margin-left:auto}}
 .organization-mark { display: grid; place-items: center; width: 78px; height: 78px; border: 2px solid rgba(255,255,255,.35); border-radius: 20px; background: rgba(255,255,255,.10); font-weight: 900; }
 .organization-card .eyebrow { color: #a8e4dd; font-size: 11px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
 .organization-card h2 { margin: 3px 0 7px; color: #fff; }
@@ -426,7 +429,8 @@ body[data-theme="dark"] .organization-card {
   padding-bottom: max(24px, env(safe-area-inset-bottom));
 }
 body.exam-active .exam-watermark { z-index: 0; }
-body.exam-active #candidateTopbar { display: none; }
+body.exam-active #candidateTopbar,
+body.exam-active .candidate-nav { display: none; }
 .exam-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -519,7 +523,9 @@ body.exam-active #candidateTopbar { display: none; }
   box-shadow: var(--shadow-md);
 }
 #examView .exam-main-card { min-height: 520px; padding: 30px; }
-#examView .exam-sidebar { position: sticky; top: 18px; padding: 22px; }
+#examView .exam-sidebar { position: static; padding: 0; }
+.exam-sidebar summary { padding: 16px; cursor: pointer; font-weight: 700; }
+.exam-review-content { padding: 0 16px 16px; }
 
 .question-heading { margin: 0 0 8px; font-size: 1rem; scroll-margin-top: 120px; }
 #examReview { scroll-margin-top: 120px; }
@@ -585,7 +591,7 @@ body.exam-active #candidateTopbar { display: none; }
   #examView #examProgress { margin: 4px 0 0; font-size: 12px; }
   .exam-timer { min-width: 0; flex: none; padding: 8px; font-size: 18px; }
   #examView .exam-main-card { min-height: 0; padding: 12px; }
-  #examView .exam-sidebar { position: static; padding: 12px; }
+  #examView .exam-sidebar { padding: 0; }
   .option-row { min-height: 44px; padding: 11px; gap: 10px; }
   .exam-question-actions {
     margin: 16px -12px -12px;
@@ -595,9 +601,6 @@ body.exam-active #candidateTopbar { display: none; }
     border-radius: 0 0 20px 20px;
   }
   .exam-question-actions .btn { font-size: .9375rem; padding-inline: 8px; }
-}
-@media (min-width: 1100px) and (pointer: fine) {
-  .exam-layout { grid-template-columns: minmax(0, 1fr) 280px; }
 }
 @media (max-height: 450px) and (orientation: landscape) {
   #examView #examTitleHeader { display: none; }
