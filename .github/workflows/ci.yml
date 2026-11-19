@@ -63,6 +63,8 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       COOLIFY_DEPLOY_WEBHOOK: ${{ secrets.COOLIFY_DEPLOY_WEBHOOK }}
       COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+      CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+      CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
     steps:
       - name: Request deployment after CI
         shell: bash
@@ -80,7 +82,10 @@ jobs:
           fi
 
           response=$(curl --request POST --fail --silent --show-error --max-time 30 --proto '=https' \
-            --header "Authorization: Bearer $COOLIFY_TOKEN" "$COOLIFY_DEPLOY_WEBHOOK")
+            --header "Authorization: Bearer $COOLIFY_TOKEN" \
+            --header "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+            --header "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+            "$COOLIFY_DEPLOY_WEBHOOK")
           if ! jq -e '.deployments[] | .deployment_uuid | select(type == "string" and length > 0)' \
             >/dev/null <<< "$response"; then
             echo '::error::Coolify did not report a queued deployment. Check the deploy webhook and token.'
