@@ -47,17 +47,13 @@ Source: [Outbound networking](https://docs.railway.com/networking/outbound-netwo
    | `ALLOWED_ORIGINS` | `https://YOUR-DOMAIN` |
    | `UPLOAD_DIR` | `/data/uploads` |
    | `DB_POOL_MODE` | `null` |
-   | `RECAPTCHA_SITE_KEY` | Real Google reCAPTCHA v2 site key |
-   | `RECAPTCHA_SECRET_KEY` | Matching private secret key |
-   | `RECAPTCHA_ALLOWED_HOSTNAMES` | `YOUR-DOMAIN` without scheme |
    | `BREVO_API_KEY` | Your private Brevo API key |
    | `EMAIL_FROM` | Sender address verified in Brevo |
    | `EMAIL_FROM_NAME` | `NIRPR RSO Examination Platform` |
 
    Leave `REDIS_URL`, `CELERY_BROKER_URL` and `CELERY_RESULT_BACKEND` unset.
    Leave `SMTP_HOST`, `SMTP_USER` and `SMTP_PASSWORD` unset on Hobby.
-   Production startup requires real signing/reCAPTCHA settings. Add the domain
-   to the reCAPTCHA console. Do not copy development credentials from `.env`.
+   Production startup requires a strong private signing key. CAPTCHA is currently removed. Do not copy development credentials from `.env`.
 5. Deploy and verify `/api/health`, registration, actual email delivery, login,
    receipt upload and download, and an exam/approval/certificate flow.
 

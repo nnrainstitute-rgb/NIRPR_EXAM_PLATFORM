@@ -293,8 +293,6 @@ phrasings separated by `/` on one line.
 | `ALLOWED_ORIGINS` | Comma-separated browser origins allowed by CORS | local port 8000 origins |
 | `REDIS_URL` | Rate limits, cache and exam heartbeat | `redis://localhost:6379/0` |
 | `CELERY_BROKER_URL` / `CELERY_RESULT_BACKEND` | Background notification worker | `REDIS_URL` |
-| `RECAPTCHA_SITE_KEY` | Google reCAPTCHA v2 public site key; register localhost for development | Google official development test key |
-| `RECAPTCHA_SECRET_KEY` | Google reCAPTCHA v2 server verification secret | Google official development test secret |
 
 ## Move the existing data to PostgreSQL
 
