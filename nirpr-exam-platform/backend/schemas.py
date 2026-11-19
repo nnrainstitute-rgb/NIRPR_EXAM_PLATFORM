@@ -57,7 +57,6 @@ class LoginRequest(BaseModel):
     captcha_token: Optional[str] = None
     captcha_answer: Optional[int] = None
     captcha_selection: List[int] = []
-    recaptcha_token: Optional[str] = None
 
 
 class RegisterResponse(BaseModel):
@@ -76,7 +75,6 @@ class ResendVerificationRequest(BaseModel):
 
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
-    recaptcha_token: Optional[str] = None
 
 
 class ResetPasswordRequest(BaseModel):
@@ -125,7 +123,6 @@ class UserCreate(UserBase):
     institution: Optional[str] = None
     qualification: Optional[str] = None
     practice_type: Optional[str] = None
-    recaptcha_token: Optional[str] = None
 
 
 class UserUpdate(BaseModel):

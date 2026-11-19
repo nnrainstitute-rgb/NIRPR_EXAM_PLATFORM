@@ -2,12 +2,7 @@
 import os
 import secrets
 import anyio
-from urllib.parse import urlparse
 from starlette.responses import JSONResponse
-
-RECAPTCHA_TEST_SITE_KEY = "6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI"
-RECAPTCHA_TEST_SECRET_KEY = "6LeIxAcTAAAAAGG-vFI1TnRWxMZNFuojJ4WifJWe"
-
 
 def is_production():
     return os.getenv("RENDER", "").lower() == "true" or os.getenv("APP_ENV", "").lower() == "production"
@@ -24,17 +19,6 @@ def signing_key():
         # An ephemeral local key is safer than a publicly known signing key.
         return secrets.token_urlsafe(48)
     return value
-
-
-def recaptcha_settings():
-    site = os.getenv("RECAPTCHA_SITE_KEY", "").strip()
-    secret = os.getenv("RECAPTCHA_SECRET_KEY", "").strip()
-    host = os.getenv("RENDER_EXTERNAL_HOSTNAME", "") or urlparse(os.getenv("APP_BASE_URL", "")).hostname or ""
-    hosts = {item.strip().lower() for item in os.getenv("RECAPTCHA_ALLOWED_HOSTNAMES", host).split(",") if item.strip()}
-    test_key = site == RECAPTCHA_TEST_SITE_KEY or secret == RECAPTCHA_TEST_SECRET_KEY
-    if is_production() and (not site or not secret or not hosts or test_key):
-        raise RuntimeError("Configure real reCAPTCHA v2 keys and RECAPTCHA_ALLOWED_HOSTNAMES before starting production.")
-    return site, secret, hosts
 
 
 class RequestBodyLimitMiddleware:

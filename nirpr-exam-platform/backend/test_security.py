@@ -95,43 +95,6 @@ def test_production_refuses_weak_signing_key(monkeypatch, key):
         security_config.signing_key()
 
 
-def test_production_refuses_public_recaptcha_test_keys(monkeypatch):
-    monkeypatch.setenv('APP_ENV', 'production')
-    monkeypatch.setenv('RECAPTCHA_SITE_KEY', security_config.RECAPTCHA_TEST_SITE_KEY)
-    monkeypatch.setenv('RECAPTCHA_SECRET_KEY', security_config.RECAPTCHA_TEST_SECRET_KEY)
-    monkeypatch.setenv('RECAPTCHA_ALLOWED_HOSTNAMES', 'example.test')
-    with pytest.raises(RuntimeError):
-        security_config.recaptcha_settings()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize('payload,expected', [
-    ({'success': True, 'hostname': 'example.test'}, True),
-    ({'success': True, 'hostname': 'attacker.test'}, False),
-    ({'success': True}, False),
-    ({'success': False, 'hostname': 'example.test', 'error-codes': ['timeout-or-duplicate']}, False),
-    ({'success': 'true', 'hostname': 'example.test'}, False),
-])
-async def test_recaptcha_checks_google_result_and_hostname(monkeypatch, payload, expected):
-    monkeypatch.setattr(main, 'RECAPTCHA_SECRET_KEY', 'test-only-private-value')
-    monkeypatch.setattr(main, 'RECAPTCHA_ALLOWED_HOSTNAMES', {'example.test'})
-    client_type = httpx.AsyncClient
-    transport = httpx.MockTransport(lambda req: httpx.Response(200, json=payload))
-    monkeypatch.setattr(main.httpx, 'AsyncClient', lambda **kw: client_type(transport=transport, **kw))
-    assert await main.verify_recaptcha('token', '127.0.0.1') is expected
-
-
-@pytest.mark.asyncio
-async def test_recaptcha_fails_closed_on_network_error(monkeypatch):
-    monkeypatch.setattr(main, 'RECAPTCHA_SECRET_KEY', 'test-only-private-value')
-    monkeypatch.setattr(main, 'RECAPTCHA_ALLOWED_HOSTNAMES', {'example.test'})
-    def fail(req):
-        raise httpx.ConnectError('unavailable')
-    client_type = httpx.AsyncClient
-    monkeypatch.setattr(main.httpx, 'AsyncClient', lambda **kw: client_type(transport=httpx.MockTransport(fail), **kw))
-    assert await main.verify_recaptcha('token', '127.0.0.1') is False
-
-
 @pytest.mark.asyncio
 async def test_mfa_setup_cannot_disable_enabled_mfa():
     with pytest.raises(HTTPException) as error:
@@ -220,14 +183,6 @@ async def test_logout_revokes_authenticated_session():
 
 
 @pytest.mark.asyncio
-async def test_recaptcha_config_never_returns_secret(monkeypatch):
-    monkeypatch.setattr(main, 'RECAPTCHA_SITE_KEY', 'public-site-key')
-    monkeypatch.setattr(main, 'RECAPTCHA_SECRET_KEY', 'private-secret-key')
-    monkeypatch.setattr(main, 'RECAPTCHA_ALLOWED_HOSTNAMES', {'example.test'})
-    assert await main.recaptcha_config() == {'site_key': 'public-site-key', 'provider': 'google_recaptcha_v2'}
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize('content_type,content', [('application/pdf', b'<html>bad</html>'), ('image/png', b'not an image')])
 async def test_receipt_spoofing_is_rejected_before_storage(content_type, content):
     from starlette.datastructures import UploadFile, Headers
@@ -236,3 +191,29 @@ async def test_receipt_spoofing_is_rejected_before_storage(content_type, content
     with pytest.raises(HTTPException) as error:
         await main.upload_payment(1, upload, None, None, user(), FakeDB())
     assert error.value.status_code == 400
+
+@pytest.mark.asyncio
+async def test_password_reset_reaches_account_lookup_without_captcha():
+    class DB:
+        async def execute(self, query):
+            raise RuntimeError("account lookup reached")
+    with pytest.raises(RuntimeError, match="account lookup reached"):
+        await main.forgot_password(
+            schemas.ForgotPasswordRequest(email="candidate@example.com"), request(), DB()
+        )
+
+
+def test_production_app_imports_without_captcha_configuration():
+    import os
+    from pathlib import Path
+    import subprocess
+    import sys
+
+    env = {key: value for key, value in os.environ.items()
+           if not key.startswith(('RECAPTCHA_', 'TURNSTILE_'))}
+    env.update(APP_ENV='production', SECRET_KEY='test-only-private-signing-key-of-at-least-32-characters',
+               DATABASE_URL='sqlite+aiosqlite:///:memory:', REDIS_URL='', SMTP_HOST='')
+    result = subprocess.run([sys.executable, '-c', 'import main; assert main.app is not None'],
+                            cwd=Path(__file__).parent, env=env, capture_output=True,
+                            text=True, timeout=30)
+    assert result.returncode == 0, result.stderr

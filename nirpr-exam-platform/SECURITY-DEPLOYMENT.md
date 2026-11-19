@@ -1,22 +1,18 @@
-# Security hardening and reCAPTCHA deployment
+# Security hardening and deployment
 
 Prepared locally on September 21, 2026. These changes are not live until the owner approves committing, pushing, merging, and deploying them.
 
-## reCAPTCHA v2 checkbox setup
+## CAPTCHA removal (November 2026)
 
-The existing UI already uses the v2 checkbox, so no site key needs to be pasted into HTML.
+Google reCAPTCHA has been removed from startup, authentication configuration,
+and password reset. No Google or Turnstile keys are required. Keep
+`APP_ENV=production` and the private signing key configured. Authentication,
+staff MFA, account lockouts, session checks, and auth rate limits remain.
+Cloudflare Access is configured separately and does not automatically protect
+public password-reset requests. Deploy through CI, then verify health, staff
+login, and password reset. Email delivery still requires a configured provider.
 
-1. In Google's reCAPTCHA settings, add `nirpr-exam-platform.onrender.com` to the allowed domains (no `https://` or path). Add any custom domain actually used by this app. Keep domain validation enabled.
-2. In Render, open **NIRPR_EXAM_PLATFORM → Environment** and enter these values privately:
-   - `RECAPTCHA_SITE_KEY`: your public v2 site key.
-   - `RECAPTCHA_SECRET_KEY`: the matching private v2 secret key.
-   - `RECAPTCHA_ALLOWED_HOSTNAMES`: `nirpr-exam-platform.onrender.com` (comma-separated if there are additional real domains).
-   - `APP_BASE_URL`: `https://nirpr-exam-platform.onrender.com`.
-3. Verify `SECRET_KEY` is a private, randomly generated value of at least 32 characters. Do not use the old example value. Changing an existing signing key invalidates existing login tokens; coordinate any rotation.
-4. Store changes without deploying if Render offers that choice. Saving with deployment restarts the application and invokes its existing startup database maintenance, so obtain deployment approval first.
-5. After approval and deployment, check `/api/auth/recaptcha-config`: it should return the public site key and provider only. Complete the checkbox yourself and test candidate/staff login and password recovery. Google tokens expire after two minutes and are single-use.
-
-Never put the secret key in the frontend, GitHub, a pull request, or chat. Production now refuses missing/public test keys, missing hostname configuration, or an insecure signing key. Local development can explicitly configure Google's v2 test keys and their test hostname; there is no automatic test-key fallback.
+The sections below describe earlier security work and its historical validation.
 
 ## Changes in this patch
 
@@ -25,7 +21,6 @@ Never put the secret key in the frontend, GitHub, a pull request, or chat. Produ
 - Revoke the server session when the user presses Sign out.
 - Prevent an MFA setup request from silently replacing enabled MFA.
 - Prevent regular admins from creating, importing, editing, resetting, or deleting Super Admin accounts.
-- Validate reCAPTCHA server-side success and the hostname, fail closed on errors, and display configuration/load errors in the UI.
 - Use the ASGI server's client address instead of blindly trusting client-supplied forwarding headers. Bound the in-memory rate limiter and make Redis counter expiry atomic.
 - Limit API request bodies to 6 MiB before parsing, CSV files to 5 MiB, validate receipt images/PDF headers, and serve receipts as attachments. PDF header checking is not malware scanning.
 - Add CSP restrictions for embedded objects, base URLs, framing, and form targets; enable HSTS in production.

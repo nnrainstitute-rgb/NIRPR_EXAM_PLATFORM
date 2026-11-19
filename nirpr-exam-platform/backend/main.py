@@ -58,7 +58,7 @@ from name_utils import split_full_name
 from candidate_tag_utils import build_candidate_tag_pdf
 from candidate_number_utils import candidate_number as format_candidate_number
 from infrastructure import rate_limit, heartbeat
-from security_config import recaptcha_settings, is_production, RequestBodyLimitMiddleware
+from security_config import is_production, RequestBodyLimitMiddleware
 from reporting_utils import official_exam_report_pdf
 
 # Kept as aliases so the rest of this file (and anyone grepping for these
@@ -70,24 +70,6 @@ RESET_TOKEN_MINUTES = PASSWORD_RESET_TOKEN_EXPIRE_MINUTES
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FRONTEND_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "frontend"))
-RECAPTCHA_SITE_KEY, RECAPTCHA_SECRET_KEY, RECAPTCHA_ALLOWED_HOSTNAMES = recaptcha_settings()
-
-
-async def verify_recaptcha(token: str, remote_ip: str) -> bool:
-    if not token or len(token) > 4096 or not RECAPTCHA_SECRET_KEY or not RECAPTCHA_ALLOWED_HOSTNAMES:
-        return False
-    try:
-        async with httpx.AsyncClient(timeout=8.0) as client:
-            response = await client.post("https://www.google.com/recaptcha/api/siteverify", data={
-                "secret": RECAPTCHA_SECRET_KEY, "response": token, "remoteip": remote_ip,
-            })
-        response.raise_for_status()
-        result = response.json()
-        return (result.get("success") is True
-                and result.get("hostname", "").lower() in RECAPTCHA_ALLOWED_HOSTNAMES)
-    except Exception:
-        return False
-
 
 def build_user_detail(user: User, candidate_profile: Optional[CandidateProfile] = None) -> schemas.UserDetailResponse:
     """Build a UserDetailResponse without letting pydantic lazily touch the
@@ -194,7 +176,7 @@ async def security_headers_and_rate_limits(request: Request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-    response.headers["Content-Security-Policy"] = "default-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' https://www.google.com/recaptcha/ https://www.gstatic.com/recaptcha/; frame-src blob: https://www.google.com/recaptcha/ https://recaptcha.google.com/recaptcha/; img-src 'self' data: blob: https://www.gstatic.com/recaptcha/; connect-src 'self' https://www.google.com/recaptcha/"
+    response.headers["Content-Security-Policy"] = "default-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; frame-src blob:; img-src 'self' data: blob:; connect-src 'self'"
     if is_production():
         response.headers["Strict-Transport-Security"] = "max-age=31536000"
     response.headers["Cache-Control"] = "no-store" if request.url.path.startswith("/api/") else "no-cache"
@@ -442,12 +424,6 @@ async def captcha():
     return {"question": f"Select all images containing {target}", "tiles": [icon for icon, _ in tiles],
             "token": token, "challenge_type": "image_grid"}
 
-
-@app.get("/api/auth/recaptcha-config", tags=["Auth"])
-async def recaptcha_config():
-    if not RECAPTCHA_SITE_KEY or not RECAPTCHA_SECRET_KEY or not RECAPTCHA_ALLOWED_HOSTNAMES:
-        raise HTTPException(status_code=503, detail="Human verification is not configured. Contact the administrator.")
-    return {"site_key": RECAPTCHA_SITE_KEY, "provider": "google_recaptcha_v2"}
 
 
 @app.post("/api/auth/mfa/setup", tags=["Auth"])
@@ -707,8 +683,6 @@ async def resend_verification(data: schemas.ResendVerificationRequest, db: Async
 @app.post("/api/auth/forgot-password", response_model=schemas.MessageResponse, tags=["Auth"])
 async def forgot_password(data: schemas.ForgotPasswordRequest, request: Request,
                           db: AsyncSession = Depends(get_db)):
-    if not await verify_recaptcha(data.recaptcha_token or "", get_client_ip(request) or ""):
-        raise HTTPException(status_code=400, detail="CAPTCHA_FAILED: Complete the human verification challenge again.")
     generic = schemas.MessageResponse(
         detail="If an account exists for that email address, a password reset link has been sent."
     )
