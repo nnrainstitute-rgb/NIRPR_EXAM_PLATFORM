@@ -1,4 +1,5 @@
 """Regression tests for authentication boundaries; use a disposable database."""
+import asyncio
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
@@ -85,6 +86,35 @@ async def test_impersonation_rejected_after_admin_loses_role():
 def test_untrusted_forwarded_header_cannot_change_rate_limit_identity():
     req = request([(b'x-forwarded-for', b'1.2.3.4'), (b'x-real-ip', b'5.6.7.8')])
     assert auth.get_client_ip(req) == '127.0.0.1'
+
+
+@pytest.mark.asyncio
+async def test_exam_sign_in_burst_from_one_ip(monkeypatch):
+    monkeypatch.setattr(infrastructure, "redis_client", None)
+    monkeypatch.setattr(infrastructure, "_memory_windows", infrastructure.OrderedDict())
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=main.app), base_url="http://test"
+    ) as client:
+        async def candidate_requests():
+            login = await client.post("/api/auth/login", json={})
+            password_change = await client.post("/api/auth/change-temporary-password", json={})
+            profile = await client.get("/api/auth/me")
+            return login.status_code, password_change.status_code, profile.status_code
+
+        results = await asyncio.gather(*(candidate_requests() for _ in range(100)))
+        assert results == [(422, 401, 401)] * 100
+
+        for _ in range(200):
+            assert (await client.post("/api/auth/login", json={})).status_code == 422
+        throttled = await client.post("/api/auth/login", json={})
+        assert throttled.status_code == 429
+        assert throttled.headers["retry-after"] == "60"
+        assert (await client.get("/api/auth/me")).status_code == 401
+
+        for _ in range(30):
+            assert (await client.post("/api/auth/forgot-password", json={})).status_code == 422
+        assert (await client.post("/api/auth/forgot-password", json={})).status_code == 429
 
 
 @pytest.mark.parametrize('key', ['', 'short', 'nirpr-rso-platform-secret-key-change-in-production'])
