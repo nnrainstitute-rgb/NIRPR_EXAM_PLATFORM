@@ -166,12 +166,29 @@ app.add_middleware(
 )
 app.add_middleware(RequestBodyLimitMiddleware)
 
+# A room of candidates can share one public IP at the start of an exam.
+EXAM_SIGN_IN_ROUTES = {
+    ("POST", "/api/auth/login"),
+    ("GET", "/api/auth/me"),
+    ("POST", "/api/auth/change-temporary-password"),
+}
+
 @app.middleware("http")
 async def security_headers_and_rate_limits(request: Request, call_next):
+    path = request.url.path
     ip = get_client_ip(request) or "unknown"
-    if request.url.path.startswith("/api/auth/") and not await rate_limit(f"auth:{ip}", 30, 60):
-        return JSONResponse({"detail": "Too many authentication requests. Please try again shortly."}, status_code=429)
-    response = await call_next(request)
+    if (request.method, path.rstrip("/")) in EXAM_SIGN_IN_ROUTES:
+        key, limit = f"auth:{path.rstrip('/')}:{ip}", 300
+    else:
+        key, limit = f"auth:{ip}", 30
+    if path.startswith("/api/auth/") and not await rate_limit(key, limit, 60):
+        response = JSONResponse(
+            {"detail": "Too many authentication requests. Please try again shortly."},
+            status_code=429,
+            headers={"Retry-After": "60"},
+        )
+    else:
+        response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
